@@ -7,10 +7,8 @@
 -- Drop views first (depend on tables)
 DROP VIEW IF EXISTS v_data_freshness CASCADE;
 DROP VIEW IF EXISTS v_latest_gdelt    CASCADE;
-DROP VIEW IF EXISTS v_latest_signal   CASCADE;
 
 -- Drop tables (hypertables auto-dropped with CASCADE)
-DROP TABLE IF EXISTS signals        CASCADE;
 DROP TABLE IF EXISTS gdelt_features CASCADE;
 DROP TABLE IF EXISTS ohlcv_xauusd   CASCADE;
 DROP TABLE IF EXISTS macro_fred     CASCADE;

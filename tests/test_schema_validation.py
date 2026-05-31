@@ -22,7 +22,7 @@ def test_reserved_words_not_used():
 def test_idempotent_keywords():
     with open('db/schema.sql') as f:
         sql = f.read()
-    tables = ['ohlcv_xauusd','cot_xauusd', 'gdelt_features','macro_fred','signals']
+    tables = ['ohlcv_xauusd','cot_xauusd', 'gdelt_features','macro_fred']
     for t in tables:
         assert f'CREATE TABLE IF NOT EXISTS {t}' in sql
 
@@ -30,12 +30,12 @@ def test_teardown_drops_all_tables():
     with open('db/teardown.sql') as f:
         sql = f.read()
     assert 'DROP TABLE IF EXISTS' in sql
-    tables = ['ohlcv_xauusd','cot_xauusd', 'gdelt_features','macro_fred','signals']
+    tables = ['ohlcv_xauusd','cot_xauusd', 'gdelt_features','macro_fred']
     for t in tables:
         assert re.search(rf'DROP TABLE IF EXISTS\s+{t}', sql)
 
 def test_readme_mentions_all_tables():
     with open('db/README.md') as f:
         md = f.read()
-    for table in ['ohlcv_xauusd','cot_xauusd', 'gdelt_features','macro_fred','signals']:
+    for table in ['ohlcv_xauusd','cot_xauusd', 'gdelt_features','macro_fred']:
         assert table in md, f"README missing: {table}"

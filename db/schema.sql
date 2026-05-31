@@ -101,50 +101,9 @@ CREATE INDEX IF NOT EXISTS idx_macro_series_date
     ON macro_fred (series_id, obs_date DESC);
 
 -- ============================================================
--- TABLE 5: signals — RegimeSignalBridge output (Hypertable)
--- ============================================================
-CREATE TABLE IF NOT EXISTS signals (
-    ts               TIMESTAMPTZ      NOT NULL,
-    hmm_regime       SMALLINT,
-    hmm_posterior    JSONB,
-    lstm_signal      DOUBLE PRECISION,
-    garch_vol        DOUBLE PRECISION,
-    bridge_forecast  DOUBLE PRECISION,
-    CONSTRAINT chk_signals_regime   CHECK (hmm_regime BETWEEN 0 AND 3),
-    CONSTRAINT chk_signals_lstm     CHECK (lstm_signal BETWEEN 0 AND 1),
-    CONSTRAINT chk_signals_forecast CHECK (bridge_forecast BETWEEN -20 AND 20),
-    PRIMARY KEY (ts)
-);
-
-DO $$ BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM timescaledb_information.hypertables
-        WHERE hypertable_name = 'signals'
-    ) THEN
-        PERFORM create_hypertable(
-            'signals', 'ts',
-            chunk_time_interval => INTERVAL '1 month'
-        );
-    END IF;
-END $$;
-
-CREATE INDEX IF NOT EXISTS idx_signals_regime ON signals (hmm_regime, ts DESC);
-
 -- ============================================================
 -- VIEWS
 -- ============================================================
-
-CREATE OR REPLACE VIEW v_latest_signal AS
-SELECT
-    ts,
-    hmm_regime,
-    hmm_posterior,
-    lstm_signal,
-    garch_vol,
-    bridge_forecast
-FROM signals
-ORDER BY ts DESC
-LIMIT 1;
 
 CREATE OR REPLACE VIEW v_latest_gdelt AS
 SELECT
@@ -163,7 +122,5 @@ CREATE OR REPLACE VIEW v_data_freshness AS
 SELECT 'ohlcv' AS feed, MAX(ts) AS latest_ts FROM ohlcv_xauusd
 UNION ALL
 SELECT 'gdelt' AS feed, MAX(ts) AS latest_ts FROM gdelt_features
-UNION ALL
-SELECT 'signals' AS feed, MAX(ts) AS latest_ts FROM signals
 UNION ALL
 SELECT 'cot' AS feed, MAX(week_date::TIMESTAMPTZ) AS latest_ts FROM cot_xauusd;

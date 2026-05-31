@@ -85,28 +85,12 @@ psql $DATABASE_URL -f db/teardown.sql
 | `FEDFUNDS` | Fed Funds Rate |
 
 ---
-
-### `signals` — Trading Signals Output (Hypertable)
-| Column | Type | Description |
-|--------|------|-------------|
-| `ts` | TIMESTAMPTZ PK | Signal generation time (UTC) |
-| `hmm_regime` | SMALLINT | Dominant regime 0–3 |
-| `hmm_posterior` | JSONB | Posterior probabilities `[p0,p1,p2,p3]` |
-| `lstm_signal` | DOUBLE PRECISION | Direction probability 0.0–1.0 |
-| `garch_vol` | DOUBLE PRECISION | Annualized vol forecast |
-| `bridge_forecast` | DOUBLE PRECISION | pysystemtrade forecast scale −20 to +20 |
-
-**Chunk interval:** 1 month  
-**Source:** `src/execution/regime_signal_bridge.py`  
-**Consumed by:** pysystemtrade external forecast mechanism
-
 ---
 
 ## Views
 
 | View | Description |
 |------|-------------|
-| `v_latest_signal` | Most recent row from `signals` |
 | `v_latest_gdelt` | Most recent row from `gdelt_features` |
 | `v_data_freshness` | MAX(ts) per feed — used by Grafana + watchdog |
 
@@ -120,7 +104,6 @@ psql $DATABASE_URL -f db/teardown.sql
 | gdelt | 15 min (API lag) | > 1 hour |
 | cot | Weekly (Fri) | > 8 days |
 | macro_fred | Daily (6am) | > 2 days |
-| signals | < 15 min | > 8 hours |
 
 ---
 
@@ -132,4 +115,3 @@ psql $DATABASE_URL -f db/teardown.sql
 | ohlcv_xauusd | (source, ts DESC) | Filter by data source |
 | gdelt_features | ts DESC | Latest feature lookup |
 | macro_fred | (series_id, obs_date DESC) | Per-series time-range queries |
-| signals | (hmm_regime, ts DESC) | Filter signals by regime |
