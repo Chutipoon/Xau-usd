@@ -20,17 +20,17 @@ psql $DATABASE_URL -f db/teardown.sql
 ### `ohlcv_xauusd` — Price Data (Hypertable)
 | Column | Type | Description |
 |--------|------|-------------|
-| `timestamp` | TIMESTAMPTZ PK | Bar open time (UTC) |
+| `ts` | TIMESTAMPTZ PK | Bar open time (UTC) |
 | `open_price` | DOUBLE PRECISION | Open price (USD/oz) |
-| `high` | DOUBLE PRECISION | High price |
-| `low` | DOUBLE PRECISION | Low price |
+| `high_price` | DOUBLE PRECISION | High price |
+| `low_price` | DOUBLE PRECISION | Low price |
 | `close_price` | DOUBLE PRECISION | Close price |
 | `volume` | DOUBLE PRECISION | Volume (contracts) |
 | `source` | VARCHAR(20) | `dukascopy` \| `yahoo` \| `manual` |
 
 **Chunk interval:** 1 month  
 **Source:** `src/data/dukascopy_fetcher.py`  
-**Constraints:** close BETWEEN 500–5000, high ≥ low, all prices > 0
+**Constraints:** close_price BETWEEN 500–5000, high_price ≥ low_price, all prices > 0
 
 ---
 
@@ -52,7 +52,7 @@ psql $DATABASE_URL -f db/teardown.sql
 ### `gdelt_features` — GDELT Sentiment Features (Hypertable)
 | Column | Type | Description |
 |--------|------|-------------|
-| `timestamp` | TIMESTAMPTZ PK | Feature computation time (UTC) |
+| `ts` | TIMESTAMPTZ PK | Feature computation time (UTC) |
 | `tone_7d_avg` | DOUBLE PRECISION | 7-day rolling mean of GDELT tone score |
 | `tone_30d_avg` | DOUBLE PRECISION | 30-day rolling mean of GDELT tone score |
 | `event_spike_zscore` | DOUBLE PRECISION | Z-score of article count vs 30d baseline |
@@ -89,7 +89,7 @@ psql $DATABASE_URL -f db/teardown.sql
 ### `signals` — Trading Signals Output (Hypertable)
 | Column | Type | Description |
 |--------|------|-------------|
-| `timestamp` | TIMESTAMPTZ PK | Signal generation time (UTC) |
+| `ts` | TIMESTAMPTZ PK | Signal generation time (UTC) |
 | `hmm_regime` | SMALLINT | Dominant regime 0–3 |
 | `hmm_posterior` | JSONB | Posterior probabilities `[p0,p1,p2,p3]` |
 | `lstm_signal` | DOUBLE PRECISION | Direction probability 0.0–1.0 |
@@ -108,7 +108,7 @@ psql $DATABASE_URL -f db/teardown.sql
 |------|-------------|
 | `v_latest_signal` | Most recent row from `signals` |
 | `v_latest_gdelt` | Most recent row from `gdelt_features` |
-| `v_data_freshness` | MAX(timestamp) per feed — used by Grafana + watchdog |
+| `v_data_freshness` | MAX(ts) per feed — used by Grafana + watchdog |
 
 ---
 
@@ -128,8 +128,8 @@ psql $DATABASE_URL -f db/teardown.sql
 
 | Table | Index | Purpose |
 |-------|-------|---------|
-| ohlcv_xauusd | timestamp DESC | Time-range queries (primary) |
-| ohlcv_xauusd | (source, timestamp DESC) | Filter by data source |
-| gdelt_features | timestamp DESC | Latest feature lookup |
-| macro_fred | (series_id, date DESC) | Per-series time-range queries |
-| signals | (hmm_regime, timestamp DESC) | Filter signals by regime |
+| ohlcv_xauusd | ts DESC | Time-range queries (primary) |
+| ohlcv_xauusd | (source, ts DESC) | Filter by data source |
+| gdelt_features | ts DESC | Latest feature lookup |
+| macro_fred | (series_id, obs_date DESC) | Per-series time-range queries |
+| signals | (hmm_regime, ts DESC) | Filter signals by regime |
