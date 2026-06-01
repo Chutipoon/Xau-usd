@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS ohlcv_xauusd (
     CONSTRAINT chk_ohlcv_price_range
         CHECK (close_price BETWEEN 500 AND 5000),
     CONSTRAINT chk_ohlcv_source
-        CHECK (source IN ('dukascopy', 'yahoo', 'manual'))
+        CHECK (source IN ('dukascopy', 'yahoo', 'manual')),
+    CONSTRAINT uq_ohlcv_ts UNIQUE (ts)
 );
 
 DO $$ BEGIN
@@ -68,7 +69,8 @@ CREATE TABLE IF NOT EXISTS gdelt_features (
     event_spike_zscore     DOUBLE PRECISION,
     tone_price_divergence  DOUBLE PRECISION,
     article_count          INTEGER          DEFAULT 0,
-    CONSTRAINT chk_gdelt_zscore CHECK (event_spike_zscore BETWEEN -10 AND 10)
+    CONSTRAINT chk_gdelt_zscore CHECK (event_spike_zscore BETWEEN -10 AND 10),
+    CONSTRAINT uq_gdelt_ts UNIQUE (ts)
 );
 
 DO $$ BEGIN

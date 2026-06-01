@@ -92,16 +92,12 @@ def _fetch_with_retry(url, retries=3, backoff=2):
 def _parse_bi5(data, date, timeframe):
     """
     Parsed .bi5 binary data.
-    Structure: 4-byte int (seconds from start of day/period) + 5 floats
-    Actually for candles it's:
-    - Time offset (int32)
-    - Open, Close, Low, High (float32)
-    - Volume (float32)
-    Wait, the issue says: 4-byte int + 4 floats + 1 float per candle.
-    And symbol is XAUUSD, so points are usually 3 decimals.
+    Structure: 4-byte int (seconds from start of day/period) + 4x uint32 + 1 float
+    Dukascopy encodes prices as integers (price * point_multiplier).
+    XAUUSD point = 0.001 (3 decimal places).
     """
-    # Struct format: !i5f (Big-endian: int32, 5x float32)
-    struct_size = struct.calcsize('>i5f')
+    struct_fmt = '>i4If' # timestamp(i32), O/H/L/C(4xu32), vol(f32)
+    struct_size = struct.calcsize(struct_fmt)
     records = []
 
     base_ts = int(date.timestamp())
@@ -110,20 +106,15 @@ def _parse_bi5(data, date, timeframe):
         if i + struct_size > len(data):
             break
 
-        # Dukascopy binary data is usually Big-endian
-        # But wait, looking at common implementations, it's often:
-        # TimeOffset (int32), Open (int32), Close (int32), Low (int32), High (int32), Volume (float32)
-        # However, the issue says: 4-byte int + 4 floats + 1 float
-        # Let's follow the issue: !i5f
-
         try:
-            time_offset, op, hi, lo, cl, vol = struct.unpack('>i5f', data[i:i+struct_size])
+            time_offset, op, hi, lo, cl, vol = struct.unpack(struct_fmt, data[i:i+struct_size])
+            # XAUUSD point = 0.001
             records.append({
                 'timestamp': base_ts + time_offset,
-                'open': op,
-                'high': hi,
-                'low': lo,
-                'close': cl,
+                'open': op / 1000.0,
+                'high': hi / 1000.0,
+                'low': lo / 1000.0,
+                'close': cl / 1000.0,
                 'volume': vol
             })
         except Exception:

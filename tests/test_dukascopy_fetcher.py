@@ -8,9 +8,9 @@ from src.data.dukascopy_fetcher import fetch_ohlcv, fetch_and_store
 
 def test_fetch_ohlcv_structure_and_dtypes():
     # Prepare mock bi5 data
-    # format: !i5f (int32, 5x float32)
-    # One candle at 0 offset, with prices around 2000
-    mock_record = struct.pack('>i5f', 0, 2000.0, 2010.0, 1990.0, 2005.0, 100.0)
+    # format: >i4If (int32, 4x uint32, 1x float32)
+    # Prices around 2000 multiplied by 1000
+    mock_record = struct.pack('>i4If', 0, 2000000, 2010000, 1990000, 2005000, 100.0)
     compressed_data = lzma.compress(mock_record)
 
     with patch('src.data.dukascopy_fetcher.requests.get') as mock_get:
@@ -31,7 +31,7 @@ def test_fetch_ohlcv_structure_and_dtypes():
 
 def test_fetch_ohlcv_date_range():
     # Mock data for two days
-    mock_record = struct.pack('>i5f', 0, 2000.0, 2010.0, 1990.0, 2005.0, 100.0)
+    mock_record = struct.pack('>i4If', 0, 2000000, 2010000, 1990000, 2005000, 100.0)
     compressed_data = lzma.compress(mock_record)
 
     with patch('src.data.dukascopy_fetcher.requests.get') as mock_get:
@@ -50,7 +50,7 @@ def test_fetch_ohlcv_date_range():
 
 def test_fetch_ohlcv_validation():
     # Mock data with invalid close price
-    mock_record = struct.pack('>i5f', 0, 2000.0, 2010.0, 1990.0, 100.0, 100.0) # close=100 is invalid
+    mock_record = struct.pack('>i4If', 0, 2000000, 2010000, 1990000, 100000, 100.0) # close=100 is invalid
     compressed_data = lzma.compress(mock_record)
 
     with patch('src.data.dukascopy_fetcher.requests.get') as mock_get:
@@ -66,7 +66,7 @@ def test_fetch_ohlcv_validation():
         assert df.empty
 
 def test_fetch_and_store_calls_db():
-    mock_record = struct.pack('>i5f', 0, 2000.0, 2010.0, 1990.0, 2005.0, 100.0)
+    mock_record = struct.pack('>i4If', 0, 2000000, 2010000, 1990000, 2005000, 100.0)
     compressed_data = lzma.compress(mock_record)
 
     with patch('src.data.dukascopy_fetcher.requests.get') as mock_get:
