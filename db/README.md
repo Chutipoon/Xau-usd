@@ -85,6 +85,7 @@ psql $DATABASE_URL -f db/teardown.sql
 | `FEDFUNDS` | Fed Funds Rate |
 
 ---
+---
 
 ## Views
 
