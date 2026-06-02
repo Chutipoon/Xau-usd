@@ -26,8 +26,8 @@ def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray, position_size
     if std_ret == 0:
         return 0.0
 
-    # Annualized Sharpe (assuming daily returns)
-    return float((avg_ret / std_ret) * np.sqrt(252))
+    # Annualized Sharpe (assuming hourly returns, 252 days * 24 hours)
+    return float((avg_ret / std_ret) * np.sqrt(252 * 24))
 
 def run_ablation_study(returns: np.ndarray,
                         features_with_gdelt: np.ndarray,

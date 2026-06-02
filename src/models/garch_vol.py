@@ -37,10 +37,8 @@ class RegimeGARCH:
         # original data scale, even when internal rescaling is applied.
         var_forecast = forecast.variance.values[-1, -1]
 
-        # Annualize (assuming daily data, 252 days)
-        # If hourly, 252 * 24 etc. XAU/USD is 24/5.
-        # Let's assume daily returns were used for fit as per Issue #6 10yr daily data context.
-        ann_vol = np.sqrt(var_forecast * 252)
+        # Annualize (assuming hourly data, 252 days * 24 hours)
+        ann_vol = np.sqrt(var_forecast * 252 * 24)
         return float(ann_vol)
 
     def position_size(self, regime_id: int, target_vol: float = 0.10) -> float:
