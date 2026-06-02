@@ -92,6 +92,7 @@ def main():
 
     model = LSTMSignalModel(input_size=len(features), sequence_length=args.sequence_length)
     trainer = LSTMTrainer(model, batch_size=args.batch_size)
+    trainer.scaler = scaler # Store scaler for persistence
 
     results = trainer.train(X_train, y_train, X_val, y_val, epochs=args.epochs)
 

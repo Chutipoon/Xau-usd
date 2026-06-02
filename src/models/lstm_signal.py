@@ -65,6 +65,7 @@ class LSTMTrainer:
         self.batch_size = batch_size
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
         self.criterion = nn.BCELoss()
+        self.scaler = None # Scaler to be stored with the model
 
     def train(self, X_train: np.ndarray, y_train: np.ndarray,
               X_val: Optional[np.ndarray] = None, y_val: Optional[np.ndarray] = None,
@@ -153,12 +154,13 @@ class LSTMTrainer:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'input_size': self.model.input_size,
             'hidden_sizes': self.model.hidden_sizes,
-            'sequence_length': self.model.sequence_length
+            'sequence_length': self.model.sequence_length,
+            'scaler': self.scaler
         }, path)
 
     @classmethod
     def load(cls, path: str) -> 'LSTMTrainer':
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         model = LSTMSignalModel(
             input_size=checkpoint['input_size'],
             hidden_sizes=checkpoint['hidden_sizes'],
@@ -167,4 +169,5 @@ class LSTMTrainer:
         model.load_state_dict(checkpoint['model_state_dict'])
         trainer = cls(model)
         trainer.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        trainer.scaler = checkpoint.get('scaler')
         return trainer

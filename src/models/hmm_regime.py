@@ -22,7 +22,7 @@ class RegimeHMM:
         self.scaler = StandardScaler()
         self.is_fitted = False
 
-    def _preprocess(self, feature_df: pd.DataFrame, fit_scaler: bool = False) -> np.ndarray:
+    def preprocess(self, feature_df: pd.DataFrame, fit_scaler: bool = False) -> np.ndarray:
         # Handle NaN: forward-fill then drop leading NaN rows
         df = feature_df.ffill().dropna()
 
@@ -40,7 +40,7 @@ class RegimeHMM:
     def fit(self, feature_df: pd.DataFrame) -> 'RegimeHMM':
         # feature_df columns: [returns, log_volume, realized_vol,
         #                       yield_spread, cot_net_long, event_spike_zscore]
-        X = self._preprocess(feature_df, fit_scaler=True)
+        X = self.preprocess(feature_df, fit_scaler=True)
         self.model.fit(X)
         self.is_fitted = True
         return self
@@ -49,14 +49,14 @@ class RegimeHMM:
         # Returns Viterbi-decoded state sequence
         if not self.is_fitted:
             raise ValueError("Model must be fitted before calling predict.")
-        X = self._preprocess(feature_df, fit_scaler=False)
+        X = self.preprocess(feature_df, fit_scaler=False)
         return self.model.predict(X)
 
     def predict_proba(self, feature_df: pd.DataFrame) -> np.ndarray:
         # Returns posterior probability matrix (n_samples, 4)
         if not self.is_fitted:
             raise ValueError("Model must be fitted before calling predict_proba.")
-        X = self._preprocess(feature_df, fit_scaler=False)
+        X = self.preprocess(feature_df, fit_scaler=False)
         return self.model.predict_proba(X)
 
     def save(self, path: str):

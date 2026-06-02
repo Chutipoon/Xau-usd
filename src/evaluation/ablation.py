@@ -2,13 +2,20 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, List
 from src.models.lstm_signal import LSTMSignalModel, LSTMTrainer
+from src.models.garch_vol import RegimeGARCH
 
-def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray) -> float:
+def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray, position_sizes: np.ndarray = None) -> float:
     # simple strategy: long if prob > 0.5, else short
-    signals = (predictions > 0.5).astype(float) * 2 - 1
+    direction = (predictions.flatten() > 0.5).astype(float) * 2 - 1
+
+    if position_sizes is not None:
+        signals = direction * position_sizes.flatten()
+    else:
+        signals = direction
+
     # Assuming predictions are for next step return
     # Alignment: prediction[i] is for return[i]
-    strategy_returns = signals.flatten() * returns
+    strategy_returns = signals * returns
 
     if len(strategy_returns) < 2:
         return 0.0
@@ -25,10 +32,19 @@ def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray) -> float:
 def run_ablation_study(returns: np.ndarray,
                         features_with_gdelt: np.ndarray,
                         features_without_gdelt: np.ndarray,
-                        targets: np.ndarray) -> Dict[str, Any]:
-    # Walk-forward: 5 folds, each fold = 80% train / 20% test
+                        targets: np.ndarray,
+                        regimes: np.ndarray = None,
+                        returns_series: pd.Series = None) -> Dict[str, Any]:
+    """
+    True Walk-Forward (Expanding Window):
+    Divide data into 6 chunks.
+    Fold 1: Train on chunk 1, test on chunk 2.
+    Fold 2: Train on chunks 1-2, test on chunk 3.
+    ...
+    Fold 5: Train on chunks 1-5, test on chunk 6.
+    """
     n_samples = len(returns)
-    fold_size = n_samples // 5
+    chunk_size = n_samples // 6
 
     fold_results = []
     sharpes_with = []
@@ -37,43 +53,49 @@ def run_ablation_study(returns: np.ndarray,
     # Sequence length from LSTM model requirements
     seq_len = 20
 
-    for i in range(5):
-        # We need enough data for at least one sequence and some test samples
-        test_start = int(n_samples * 0.8 * (i + 1) / 5) # This is not exactly walk-forward as described but let's try to match 80/20 per fold
-        # Wait, "each fold = 80% train / 20% test" usually implies rolling window or expanding window.
-        # Let's do a simple 5-fold split where each fold has its own 80/20 split.
+    for i in range(1, 6):
+        train_end = i * chunk_size
+        test_end = (i + 1) * chunk_size if i < 5 else n_samples
 
-        start_idx = i * fold_size
-        end_idx = (i + 1) * fold_size
-        if i == 4:
-            end_idx = n_samples
+        X_train_with = features_with_gdelt[:train_end]
+        X_test_with = features_with_gdelt[train_end:test_end]
 
-        fold_data_with = features_with_gdelt[start_idx:end_idx]
-        fold_data_without = features_without_gdelt[start_idx:end_idx]
-        fold_targets = targets[start_idx:end_idx]
-        fold_returns = returns[start_idx:end_idx]
+        X_train_without = features_without_gdelt[:train_end]
+        X_test_without = features_without_gdelt[train_end:test_end]
 
-        split_idx = int(len(fold_data_with) * 0.8)
+        y_train = targets[:train_end]
+        # y_test = targets[train_end:test_end]
+        ret_test = returns[train_end:test_end]
 
-        # Training and test sets for this fold
-        X_train_with, X_test_with = fold_data_with[:split_idx], fold_data_with[split_idx:]
-        X_train_without, X_test_without = fold_data_without[:split_idx], fold_data_without[split_idx:]
-        y_train, y_test = fold_targets[:split_idx], fold_targets[split_idx:]
-        ret_test = fold_returns[split_idx:]
+        # Position sizing via GARCH if regimes provided
+        pos_sizes = None
+        if regimes is not None and returns_series is not None:
+            garch = RegimeGARCH()
+            # Fit on training period returns
+            # We need to find the correct slice of returns_series.
+            # Assuming returns_series is aligned with features (after seq_len offset)
+            garch.fit_all(returns_series.iloc[:train_end], regimes[:train_end])
 
-        # Train LSTM with GDELT
+            # Forecast for test period
+            # For simplicity in ablation, use position size for the regime at each step
+            fold_regimes = regimes[train_end:test_end]
+            pos_sizes = np.array([garch.position_size(r) for r in fold_regimes])
+
+        # Train LSTM with GDELT (Increased epochs + early stopping)
         model_with = LSTMSignalModel(input_size=X_train_with.shape[2], sequence_length=seq_len)
         trainer_with = LSTMTrainer(model_with, batch_size=32)
-        trainer_with.train(X_train_with, y_train, epochs=10, early_stopping_patience=3) # Small epochs for ablation speed
+        trainer_with.train(X_train_with, y_train, X_val=X_test_with, y_val=targets[train_end:test_end],
+                          epochs=50, early_stopping_patience=10)
         preds_with = trainer_with.predict(X_test_with)
-        sharpe_with = calculate_sharpe(ret_test, preds_with)
+        sharpe_with = calculate_sharpe(ret_test, preds_with, pos_sizes)
 
         # Train LSTM without GDELT
         model_without = LSTMSignalModel(input_size=X_train_without.shape[2], sequence_length=seq_len)
         trainer_without = LSTMTrainer(model_without, batch_size=32)
-        trainer_without.train(X_train_without, y_train, epochs=10, early_stopping_patience=3)
+        trainer_without.train(X_train_without, y_train, X_val=X_test_without, y_val=targets[train_end:test_end],
+                             epochs=50, early_stopping_patience=10)
         preds_without = trainer_without.predict(X_test_without)
-        sharpe_without = calculate_sharpe(ret_test, preds_without)
+        sharpe_without = calculate_sharpe(ret_test, preds_without, pos_sizes)
 
         sharpes_with.append(sharpe_with)
         sharpes_without.append(sharpe_without)

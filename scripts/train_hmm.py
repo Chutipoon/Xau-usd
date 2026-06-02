@@ -54,7 +54,7 @@ def main():
     model.save(args.output)
 
     # Preprocess for AIC/BIC calculation
-    X = model._preprocess(df, fit_scaler=False)
+    X = model.preprocess(df, fit_scaler=False)
     aic, bic = calculate_aic_bic(model, X)
     metrics = validate_hmm(model, df)
 
