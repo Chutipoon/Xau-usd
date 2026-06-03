@@ -44,8 +44,8 @@ class WalkForwardBacktester:
         # Window duration is 1 month (approx 30 days or 4 weeks).
         # Overlap is 2 weeks. So step is 2 weeks.
 
-        step_delta = timedelta(weeks=self.overlap_weeks)
-        window_duration = timedelta(days=30 * self.test_months)
+        step_delta = window_duration - timedelta(weeks=self.overlap_weeks)
+        #window_duration = timedelta(days=30 * self.test_months)
 
         for i in range(self.n_windows):
             window_start = start_date + i * step_delta
@@ -112,7 +112,8 @@ class WalkForwardBacktester:
         drawdown = (equity_curve - running_max) / running_max
         max_dd = abs(drawdown.min())
 
-        calmar = (avg_ret * (ann_factor**2) / max_dd) if max_dd > 0 else 0.0
+        annualized_return = avg_ret * periods_per_year  # ไม่ใช่ * ann_factor**2
+        calmar = annualized_return / max_dd
 
         # Trades: A trade is defined as a non-zero position
         # For simple metrics, we can treat each period as a trade or
