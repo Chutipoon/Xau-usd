@@ -87,7 +87,7 @@ airflow db init
 airflow scheduler &
 
 # Start webserver (optional)
-airflow webui &
+airflow webserver &
 
 # Verify DAGs loaded
 airflow dags list
@@ -198,9 +198,11 @@ position_limits:
 Start pysystemtrade system:
 ```bash
 python -c "
-from pysystemtrade.systems.system_builder import load_config
-system = load_config('config/system.yaml')
-system.run()
+from pysystemtrade.systems.system_builder import SystemBuilder
+from sysdata.config.configdata import Config
+config = Config('config/system.yaml')
+system = SystemBuilder(config=config).get_system()
+print(f'Instruments: {system.get_instrument_list()}')
 "
 ```
 

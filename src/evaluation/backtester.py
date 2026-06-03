@@ -31,21 +31,15 @@ class WalkForwardBacktester:
         if data.empty:
             return {}
 
-        # Strategy return: signal scaled to [-1, 1] * returns
+        # Strategy return: signal scaled to [-1, 1] * log returns
+        # Scaling bridge_forecast to [-1, 1] range
         data['strategy_return'] = (data['signal'] / 20.0) * data['return']
 
         start_date = data.index.min()
         window_results = []
 
-        # We need to define the windows.
-        # Shift each window by (test_months - overlap_weeks_in_months) ?
-        # The prompt says "12 windows, 1-month test, 2-week overlap".
-        # This usually means window i+1 starts 2 weeks before window i ends.
-        # Window duration is 1 month (approx 30 days or 4 weeks).
-        # Overlap is 2 weeks. So step is 2 weeks.
-
-        step_delta = window_duration - timedelta(weeks=self.overlap_weeks)
-        #window_duration = timedelta(days=30 * self.test_months)
+        step_delta = timedelta(weeks=self.overlap_weeks)
+        window_duration = timedelta(days=30 * self.test_months)
 
         for i in range(self.n_windows):
             window_start = start_date + i * step_delta
@@ -56,7 +50,10 @@ class WalkForwardBacktester:
             if window_data.empty:
                 continue
 
-            equity_curve = (1 + window_data['strategy_return']).cumprod()
+            # Log cumulative equity: exp(cumsum(log_returns))
+            cum_log_ret = window_data['strategy_return'].cumsum()
+            equity_curve = np.exp(cum_log_ret)
+
             metrics = self._compute_metrics(window_data['strategy_return'], equity_curve)
             metrics['start'] = window_start
             metrics['end'] = window_end
@@ -66,8 +63,6 @@ class WalkForwardBacktester:
         if not window_results:
             return {}
 
-        # Aggregate metrics (mean of windows or overall equity curve?)
-        # Typically walk-forward summary is the average of window metrics
         summary = {
             'sharpe_ratio': np.mean([w['sharpe_ratio'] for w in window_results]),
             'max_drawdown': np.mean([w['max_drawdown'] for w in window_results]),
@@ -91,34 +86,29 @@ class WalkForwardBacktester:
             }
 
         # Annualization factor
-        # Infer frequency
         diffs = strategy_returns.index.to_series().diff().dt.total_seconds().dropna()
         if not diffs.empty:
             median_diff = diffs.median()
-            # 1 hour = 3600s, 1 day = 86400s
             if median_diff <= 4000: # Hourly
                 ann_factor = np.sqrt(252 * 24)
-            else: # Daily or lower
+            else: # Daily
                 ann_factor = np.sqrt(252)
         else:
             ann_factor = np.sqrt(252)
 
+        # For log returns, Sharpe = mean / std
         avg_ret = strategy_returns.mean()
         std_ret = strategy_returns.std()
         sharpe = (avg_ret / std_ret * ann_factor) if std_ret > 0 else 0.0
 
-        # Max Drawdown
+        # Max Drawdown from equity curve (Peak-to-Trough)
         running_max = equity_curve.cummax()
         drawdown = (equity_curve - running_max) / running_max
         max_dd = abs(drawdown.min())
 
-        annualized_return = avg_ret * periods_per_year  # ไม่ใช่ * ann_factor**2
-        calmar = annualized_return / max_dd
-
-        # Trades: A trade is defined as a non-zero position
-        # For simple metrics, we can treat each period as a trade or
-        # count flips in signal. But prompt asks for "win_rate" and "avg_trade_return".
-        # Let's define trades by contiguous non-zero strategy returns.
+        # Calmar = Total Return / Max Drawdown
+        total_return = equity_curve.iloc[-1] - 1
+        calmar = (total_return / max_dd) if max_dd > 0 else 0.0
 
         trades = strategy_returns[strategy_returns != 0]
         n_trades = len(trades)
@@ -151,7 +141,7 @@ class WalkForwardBacktester:
                 }
                 continue
 
-            equity_curve = (1 + period_data['strategy_return']).cumprod()
+            equity_curve = np.exp(period_data['strategy_return'].cumsum())
             results[name] = self._compute_metrics(period_data['strategy_return'], equity_curve)
 
         return results
@@ -164,7 +154,6 @@ def monte_carlo_simulation(returns: pd.Series, n_paths: int = 1000) -> Dict[str,
         return {}
 
     n_days = len(returns)
-    # Block size: let's use 10 periods
     block_size = 10
     n_blocks = int(np.ceil(n_days / block_size))
 
@@ -179,18 +168,15 @@ def monte_carlo_simulation(returns: pd.Series, n_paths: int = 1000) -> Dict[str,
         block_size = n_days
 
     for p in range(n_paths):
-        # Sample blocks with replacement
         sampled_indices = np.random.choice(len(blocks), size=n_blocks, replace=True)
         path_returns = np.concatenate([blocks[i] for i in sampled_indices])[:n_days]
 
-        equity_curve = np.cumprod(1 + path_returns)
+        # Use log returns cumulative sum
+        equity_curve = np.exp(np.cumsum(path_returns))
         paths[p, :] = equity_curve
 
-        # Calc metrics for this path
         avg_ret = np.mean(path_returns)
         std_ret = np.std(path_returns)
-
-        # Annualization for MC (assume daily as per prompt "returns: daily log returns")
         sharpe = (avg_ret / std_ret * np.sqrt(252)) if std_ret > 0 else 0.0
         sharpes.append(sharpe)
 
