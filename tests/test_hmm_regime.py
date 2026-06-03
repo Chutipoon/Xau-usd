@@ -31,7 +31,7 @@ def test_fit_convergence(synthetic_data):
     model = RegimeHMM(n_components=4, n_iter=100)
     model.fit(synthetic_data)
     assert model.is_fitted
-    assert model.model.monitor_.converged
+    assert model.converged
 
 def test_predict_proba_sums_to_one(synthetic_data):
     model = RegimeHMM(n_components=4, n_iter=100)
