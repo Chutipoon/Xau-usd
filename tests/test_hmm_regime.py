@@ -85,5 +85,5 @@ def test_nan_handling():
     # Row 0: returns is NaN, ffill won't help if it's the first row. dropna will remove it.
     # Row 1: log_volume is NaN, ffill will make it 0.1.
     # So we should have 3 rows after preprocessing.
-    X = model._preprocess(df)
+    X = model.preprocess(df)
     assert len(X) == 3

@@ -11,19 +11,23 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from src.evaluation.ablation import run_ablation_study
 from src.models.lstm_signal import FEATURE_COLS, GDELT_FEATURES
+from src.models.hmm_regime import RegimeHMM
 
-def create_sequences(data, target, returns, sequence_length):
+def create_sequences(data, target, returns, regimes, sequence_length):
     xs = []
     ys = []
     rs = []
+    reg = []
     for i in range(len(data) - sequence_length):
         x = data[i:(i + sequence_length)]
         y = target[i + sequence_length]
         r = returns[i + sequence_length]
+        rg = regimes[i + sequence_length]
         xs.append(x)
         ys.append(y)
         rs.append(r)
-    return np.array(xs), np.array(ys), np.array(rs)
+        reg.append(rg)
+    return np.array(xs), np.array(ys), np.array(rs), np.array(reg)
 
 def main():
     parser = argparse.ArgumentParser(description='Run GDELT Ablation Study')
@@ -42,6 +46,12 @@ def main():
 
     features_with = FEATURE_COLS
     features_without = [f for f in FEATURE_COLS if f not in GDELT_FEATURES]
+
+    # HMM Regime features for GARCH fitting
+    # We'll use a subset for HMM as defined in the context
+    hmm_features = ['returns_1h', 'volume_zscore', 'realized_vol_7d', 'yield_spread', 'cot_net_long', 'event_spike_zscore']
+    # Filter for available features
+    hmm_features = [f for f in hmm_features if f in df.columns]
 
     if 'target' not in df.columns:
         # Create synthetic target if not exists
@@ -72,13 +82,23 @@ def main():
     scaler_without = StandardScaler()
     X_without_scaled = scaler_without.fit_transform(X_without_raw)
 
+    # Pre-calculate regimes for ablation
+    print("Fitting HMM for regime detection...")
+    hmm = RegimeHMM(n_components=4)
+    hmm.fit(df[hmm_features])
+    regimes_raw = hmm.predict(df[hmm_features])
+
     # Create sequences
     seq_len = 20
-    X_with_seq, y_seq, ret_seq = create_sequences(X_with_scaled, y_raw, ret_raw, seq_len)
-    X_without_seq, _, _ = create_sequences(X_without_scaled, y_raw, ret_raw, seq_len)
+    X_with_seq, y_seq, ret_seq, reg_seq = create_sequences(X_with_scaled, y_raw, ret_raw, regimes_raw, seq_len)
+    X_without_seq, _, _, _ = create_sequences(X_without_scaled, y_raw, ret_raw, regimes_raw, seq_len)
 
-    print("Running ablation study (5 folds walk-forward)...")
-    results = run_ablation_study(ret_seq, X_with_seq, X_without_seq, y_seq)
+    # Returns series for GARCH (aligned with sequences)
+    # create_sequences drops first seq_len samples
+    returns_series = pd.Series(ret_seq)
+
+    print("Running ablation study (5 folds expanding walk-forward)...")
+    results = run_ablation_study(ret_seq, X_with_seq, X_without_seq, y_seq, reg_seq, returns_series)
 
     print("\n--- Ablation Study Report ---")
     print(f"Avg Sharpe (With GDELT): {results['sharpe_with_gdelt']:.4f}")

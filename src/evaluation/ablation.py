@@ -1,14 +1,23 @@
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, List
+from sklearn.preprocessing import StandardScaler
 from src.models.lstm_signal import LSTMSignalModel, LSTMTrainer
+from src.models.garch_vol import RegimeGARCH
+from src.models.hmm_regime import RegimeHMM
 
-def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray) -> float:
+def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray, position_sizes: np.ndarray = None) -> float:
     # simple strategy: long if prob > 0.5, else short
-    signals = (predictions > 0.5).astype(float) * 2 - 1
+    direction = (predictions.flatten() > 0.5).astype(float) * 2 - 1
+
+    if position_sizes is not None:
+        signals = direction * position_sizes.flatten()
+    else:
+        signals = direction
+
     # Assuming predictions are for next step return
     # Alignment: prediction[i] is for return[i]
-    strategy_returns = signals.flatten() * returns
+    strategy_returns = signals * returns
 
     if len(strategy_returns) < 2:
         return 0.0
@@ -19,16 +28,31 @@ def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray) -> float:
     if std_ret == 0:
         return 0.0
 
-    # Annualized Sharpe (assuming daily returns)
-    return float((avg_ret / std_ret) * np.sqrt(252))
+    # Annualized Sharpe (assuming hourly returns, 252 days * 24 hours)
+    return float((avg_ret / std_ret) * np.sqrt(252 * 24))
 
 def run_ablation_study(returns: np.ndarray,
                         features_with_gdelt: np.ndarray,
                         features_without_gdelt: np.ndarray,
-                        targets: np.ndarray) -> Dict[str, Any]:
-    # Walk-forward: 5 folds, each fold = 80% train / 20% test
+                        targets: np.ndarray,
+                        returns_series: pd.Series,
+                        hmm_features_df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    True Expanding-Window Walk-Forward:
+    Fold 1: train 0-20%, test 20-24%
+    Fold 2: train 0-40%, test 40-44%
+    Fold 3: train 0-60%, test 60-64%
+    Fold 4: train 0-80%, test 80-84%
+    Fold 5: train 0-96%, test 96-100%
+    """
     n_samples = len(returns)
-    fold_size = n_samples // 5
+    fold_configs = [
+        (0.20, 0.24),
+        (0.40, 0.44),
+        (0.60, 0.64),
+        (0.80, 0.84),
+        (0.96, 1.00)
+    ]
 
     fold_results = []
     sharpes_with = []
@@ -37,43 +61,60 @@ def run_ablation_study(returns: np.ndarray,
     # Sequence length from LSTM model requirements
     seq_len = 20
 
-    for i in range(5):
-        # We need enough data for at least one sequence and some test samples
-        test_start = int(n_samples * 0.8 * (i + 1) / 5) # This is not exactly walk-forward as described but let's try to match 80/20 per fold
-        # Wait, "each fold = 80% train / 20% test" usually implies rolling window or expanding window.
-        # Let's do a simple 5-fold split where each fold has its own 80/20 split.
+    for i, (train_pct, test_pct) in enumerate(fold_configs):
+        train_end = int(n_samples * train_pct)
+        test_end = int(n_samples * test_pct)
 
-        start_idx = i * fold_size
-        end_idx = (i + 1) * fold_size
-        if i == 4:
-            end_idx = n_samples
+        # Regime Detection Fix: Fit HMM only on training data to avoid leakage
+        hmm = RegimeHMM(n_components=4)
+        hmm.fit(hmm_features_df.iloc[:train_end])
+        regimes_train = hmm.predict(hmm_features_df.iloc[:train_end])
+        regimes_test = hmm.predict(hmm_features_df.iloc[train_end:test_end])
 
-        fold_data_with = features_with_gdelt[start_idx:end_idx]
-        fold_data_without = features_without_gdelt[start_idx:end_idx]
-        fold_targets = targets[start_idx:end_idx]
-        fold_returns = returns[start_idx:end_idx]
+        # Data Leakage Fix: Scaler must fit ONLY on train set of each fold
+        # features are shape (samples, seq_len, features)
+        s_with, sl_with, f_with = features_with_gdelt.shape
+        scaler_with = StandardScaler()
+        X_train_with_raw = features_with_gdelt[:train_end].reshape(-1, f_with)
+        scaler_with.fit(X_train_with_raw)
 
-        split_idx = int(len(fold_data_with) * 0.8)
+        X_train_with = scaler_with.transform(X_train_with_raw).reshape(-1, sl_with, f_with)
+        X_test_with = scaler_with.transform(features_with_gdelt[train_end:test_end].reshape(-1, f_with)).reshape(-1, sl_with, f_with)
 
-        # Training and test sets for this fold
-        X_train_with, X_test_with = fold_data_with[:split_idx], fold_data_with[split_idx:]
-        X_train_without, X_test_without = fold_data_without[:split_idx], fold_data_without[split_idx:]
-        y_train, y_test = fold_targets[:split_idx], fold_targets[split_idx:]
-        ret_test = fold_returns[split_idx:]
+        s_wo, sl_wo, f_wo = features_without_gdelt.shape
+        scaler_without = StandardScaler()
+        X_train_without_raw = features_without_gdelt[:train_end].reshape(-1, f_wo)
+        scaler_without.fit(X_train_without_raw)
 
-        # Train LSTM with GDELT
-        model_with = LSTMSignalModel(input_size=X_train_with.shape[2], sequence_length=seq_len)
+        X_train_without = scaler_without.transform(X_train_without_raw).reshape(-1, sl_wo, f_wo)
+        X_test_without = scaler_without.transform(features_without_gdelt[train_end:test_end].reshape(-1, f_wo)).reshape(-1, sl_wo, f_wo)
+
+        y_train = targets[:train_end]
+        y_test = targets[train_end:test_end]
+        ret_test = returns[train_end:test_end]
+
+        # Position sizing via GARCH
+        garch = RegimeGARCH()
+        garch.fit_all(returns_series.iloc[:train_end], regimes_train)
+        pos_sizes = np.array([garch.position_size(r) for r in regimes_test])
+
+        # Train LSTM with GDELT (50 epochs + early stopping)
+        model_with = LSTMSignalModel(input_size=f_with, sequence_length=sl_with)
         trainer_with = LSTMTrainer(model_with, batch_size=32)
-        trainer_with.train(X_train_with, y_train, epochs=10, early_stopping_patience=3) # Small epochs for ablation speed
+        trainer_with.scaler = scaler_with
+        trainer_with.train(X_train_with, y_train, X_val=X_test_with, y_val=y_test,
+                          epochs=50, early_stopping_patience=10)
         preds_with = trainer_with.predict(X_test_with)
-        sharpe_with = calculate_sharpe(ret_test, preds_with)
+        sharpe_with = calculate_sharpe(ret_test, preds_with, pos_sizes)
 
         # Train LSTM without GDELT
-        model_without = LSTMSignalModel(input_size=X_train_without.shape[2], sequence_length=seq_len)
+        model_without = LSTMSignalModel(input_size=f_wo, sequence_length=sl_wo)
         trainer_without = LSTMTrainer(model_without, batch_size=32)
-        trainer_without.train(X_train_without, y_train, epochs=10, early_stopping_patience=3)
+        trainer_without.scaler = scaler_without
+        trainer_without.train(X_train_without, y_train, X_val=X_test_without, y_val=y_test,
+                             epochs=50, early_stopping_patience=10)
         preds_without = trainer_without.predict(X_test_without)
-        sharpe_without = calculate_sharpe(ret_test, preds_without)
+        sharpe_without = calculate_sharpe(ret_test, preds_without, pos_sizes)
 
         sharpes_with.append(sharpe_with)
         sharpes_without.append(sharpe_without)

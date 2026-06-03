@@ -1,0 +1,25 @@
+# pysystemtrade system configuration for XAU/USD
+instruments:
+  - GOLD
+
+trading_rules:
+  external_forecast:
+    function: sysquant.estimators.forecast_scalar.external_forecast
+    data:
+      - rawdata.daily_returns_volatility
+
+instrument_weights:
+  GOLD: 1.0
+
+forecast_scalars:
+  external_forecast: 1.0
+
+risk_overlay:
+  max_portfolio_leverage: 2.0
+  max_correlation_risk: 0.3
+  drawdown_fraction: 0.05  # halt at 5% drawdown / 30 days
+
+position_limits:
+  GOLD:
+    max_position: 10
+    min_position: -10
