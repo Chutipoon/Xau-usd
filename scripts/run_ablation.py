@@ -75,16 +75,23 @@ def main():
     y_raw = df['target'].values
     ret_raw = df['actual_return'].values
 
+    # Scale
+    scaler_with = StandardScaler()
+    X_with_scaled = scaler_with.fit_transform(X_with_raw)
+
+    scaler_without = StandardScaler()
+    X_without_scaled = scaler_without.fit_transform(X_without_raw)
+
     # Pre-calculate regimes for ablation
     print("Fitting HMM for regime detection...")
     hmm = RegimeHMM(n_components=4)
     hmm.fit(df[hmm_features])
     regimes_raw = hmm.predict(df[hmm_features])
 
-    # Create sequences (using RAW features now, scaling moved inside ablation loop)
+    # Create sequences
     seq_len = 20
-    X_with_seq, y_seq, ret_seq, reg_seq = create_sequences(X_with_raw, y_raw, ret_raw, regimes_raw, seq_len)
-    X_without_seq, _, _, _ = create_sequences(X_without_raw, y_raw, ret_raw, regimes_raw, seq_len)
+    X_with_seq, y_seq, ret_seq, reg_seq = create_sequences(X_with_scaled, y_raw, ret_raw, regimes_raw, seq_len)
+    X_without_seq, _, _, _ = create_sequences(X_without_scaled, y_raw, ret_raw, regimes_raw, seq_len)
 
     # Returns series for GARCH (aligned with sequences)
     # create_sequences drops first seq_len samples

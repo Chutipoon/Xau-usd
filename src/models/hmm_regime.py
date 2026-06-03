@@ -59,15 +59,6 @@ class RegimeHMM:
         X = self.preprocess(feature_df, fit_scaler=False)
         return self.model.predict_proba(X)
 
-    def score(self, X: np.ndarray) -> float:
-        # Wrapper for internal model score
-        return float(self.model.score(X))
-
-    @property
-    def converged(self) -> bool:
-        # Check if the model has converged
-        return self.model.monitor_.converged
-
     def save(self, path: str):
         joblib.dump({
             'model': self.model,

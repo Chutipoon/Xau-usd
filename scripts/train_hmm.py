@@ -10,7 +10,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from src.models.hmm_regime import RegimeHMM, validate_hmm
 
 def calculate_aic_bic(model, X):
-    log_likelihood = model.score(X)
+    log_likelihood = model.model.score(X)
     n_features = X.shape[1]
     n_components = model.n_components
 

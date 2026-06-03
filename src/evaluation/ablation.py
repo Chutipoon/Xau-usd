@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 from sklearn.preprocessing import StandardScaler
 from src.models.lstm_signal import LSTMSignalModel, LSTMTrainer
 from src.models.garch_vol import RegimeGARCH
+from src.models.hmm_regime import RegimeHMM
 
 def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray, position_sizes: np.ndarray = None) -> float:
     # simple strategy: long if prob > 0.5, else short
@@ -34,8 +35,8 @@ def run_ablation_study(returns: np.ndarray,
                         features_with_gdelt: np.ndarray,
                         features_without_gdelt: np.ndarray,
                         targets: np.ndarray,
-                        regimes: np.ndarray,
-                        returns_series: pd.Series) -> Dict[str, Any]:
+                        returns_series: pd.Series,
+                        hmm_features_df: pd.DataFrame) -> Dict[str, Any]:
     """
     True Expanding-Window Walk-Forward:
     Fold 1: train 0-20%, test 20-24%
@@ -64,19 +65,24 @@ def run_ablation_study(returns: np.ndarray,
         train_end = int(n_samples * train_pct)
         test_end = int(n_samples * test_pct)
 
+        # Regime Detection Fix: Fit HMM only on training data to avoid leakage
+        hmm = RegimeHMM(n_components=4)
+        hmm.fit(hmm_features_df.iloc[:train_end])
+        regimes_train = hmm.predict(hmm_features_df.iloc[:train_end])
+        regimes_test = hmm.predict(hmm_features_df.iloc[train_end:test_end])
+
         # Data Leakage Fix: Scaler must fit ONLY on train set of each fold
-        scaler_with = StandardScaler()
         # features are shape (samples, seq_len, features)
-        # We need to reshape to fit scaler then reshape back
         s_with, sl_with, f_with = features_with_gdelt.shape
+        scaler_with = StandardScaler()
         X_train_with_raw = features_with_gdelt[:train_end].reshape(-1, f_with)
         scaler_with.fit(X_train_with_raw)
 
         X_train_with = scaler_with.transform(X_train_with_raw).reshape(-1, sl_with, f_with)
         X_test_with = scaler_with.transform(features_with_gdelt[train_end:test_end].reshape(-1, f_with)).reshape(-1, sl_with, f_with)
 
-        scaler_without = StandardScaler()
         s_wo, sl_wo, f_wo = features_without_gdelt.shape
+        scaler_without = StandardScaler()
         X_train_without_raw = features_without_gdelt[:train_end].reshape(-1, f_wo)
         scaler_without.fit(X_train_without_raw)
 
@@ -89,9 +95,8 @@ def run_ablation_study(returns: np.ndarray,
 
         # Position sizing via GARCH
         garch = RegimeGARCH()
-        garch.fit_all(returns_series.iloc[:train_end], regimes[:train_end])
-        fold_regimes = regimes[train_end:test_end]
-        pos_sizes = np.array([garch.position_size(r) for r in fold_regimes])
+        garch.fit_all(returns_series.iloc[:train_end], regimes_train)
+        pos_sizes = np.array([garch.position_size(r) for r in regimes_test])
 
         # Train LSTM with GDELT (50 epochs + early stopping)
         model_with = LSTMSignalModel(input_size=f_with, sequence_length=sl_with)
