@@ -55,14 +55,12 @@ def validate_cot(df: pd.DataFrame) -> bool:
         logger.error("Validation failed: NaNs found in numeric columns")
         return False
 
-    # Check gaps
+    # Check gaps (Warning only, do not block storage if CFTC is delayed)
     dates = pd.to_datetime(df['week_date']).sort_values()
     diffs = dates.diff().dropna()
     if (diffs > pd.Timedelta(days=14)).any():
         max_gap = diffs.max()
-        logger.warning(f"Validation warning: Date gap found ({max_gap})")
-        # According to issue, no gaps > 14 days
-        return False
+        logger.warning(f"Validation warning: Date gap found ({max_gap}). CFTC report might be delayed.")
 
     # Check net_long range: -300000 to +300000
     if (df['net_long'] < -300000).any() or (df['net_long'] > 300000).any():

@@ -1,8 +1,13 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
+import os
+import psycopg2
+import pandas as pd
 
 def compute_gdelt_features():
+    from src.data.gdelt_fetcher import compute_gdelt_features
+    # This usually requires latest prices from DB
     print("Computing GDELT features...")
     return "gdelt_features_ref"
 

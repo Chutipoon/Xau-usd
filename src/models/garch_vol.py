@@ -25,7 +25,7 @@ class RegimeGARCH:
             except Exception as e:
                 print(f"Error fitting GARCH for regime {rid}: {e}")
 
-    def forecast_vol(self, regime_id: int, horizon: int = 1) -> float:
+    def forecast_vol(self, regime_id: int, horizon: int = 1, frequency: str = 'H1') -> float:
         # Returns annualized vol forecast for given regime
         if regime_id not in self.models:
             # Fallback if no model for regime (e.g. mean vol of other regimes or global)
@@ -37,14 +37,21 @@ class RegimeGARCH:
         # original data scale, even when internal rescaling is applied.
         var_forecast = forecast.variance.values[-1, -1]
 
-        # Annualize (assuming hourly data, 252 days * 24 hours)
-        ann_vol = np.sqrt(var_forecast * 252 * 24)
+        # Annualize based on data frequency
+        # H1: 252 * 24
+        # D1: 252
+        if frequency == 'H1':
+            ann_factor = 252 * 24
+        else:
+            ann_factor = 252
+
+        ann_vol = np.sqrt(var_forecast * ann_factor)
         return float(ann_vol)
 
-    def position_size(self, regime_id: int, target_vol: float = 0.10) -> float:
+    def position_size(self, regime_id: int, target_vol: float = 0.10, frequency: str = 'H1') -> float:
         # Returns position multiplier: target_vol / forecast_vol
         # Capped at 2.0, minimum 0.1
-        forecast = self.forecast_vol(regime_id)
+        forecast = self.forecast_vol(regime_id, frequency=frequency)
         if forecast <= 0:
             return 0.1
 
