@@ -2,6 +2,7 @@ import lzma
 import struct
 import requests
 import pandas as pd
+import psycopg2.extras
 from datetime import datetime, timedelta
 import time
 import logging
@@ -9,153 +10,175 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def fetch_ohlcv(symbol, start_date, end_date, timeframe):
+
+def fetch_ohlcv(symbol: str, start_date: datetime, end_date: datetime, timeframe: str) -> pd.DataFrame:
     """
-    Fetches OHLCV data from Dukascopy.
+    Fetches OHLCV data from Dukascopy public HTTP endpoint.
 
-    symbol: 'XAUUSD'
-    start_date, end_date: datetime objects
-    timeframe: '1m', '1h', '1d'
+    Args:
+        symbol:     'XAUUSD'
+        start_date: datetime (UTC)
+        end_date:   datetime (UTC)
+        timeframe:  '1m' | '1h' | '1d'
+
+    Returns:
+        DataFrame with columns: [timestamp, open, high, low, close, volume]
+        timestamp is UTC-aware pd.Timestamp.
     """
-    if symbol != 'XAUUSD':
-        raise ValueError("Only XAUUSD is supported for now.")
+    if symbol != "XAUUSD":
+        raise ValueError("Only XAUUSD is supported.")
 
-    # Dukascopy symbols for URL
-    # XAUUSD -> XAUUSD
-
-    # Timeframe mapping for URL
-    tf_map = {
-        '1m': '1m',
-        '1h': '1h',
-        '1d': '1d'
-    }
-
+    tf_map = {"1m": "1m", "1h": "1h", "1d": "1d"}
     if timeframe not in tf_map:
-        raise ValueError(f"Unsupported timeframe: {timeframe}")
+        raise ValueError(f"Unsupported timeframe: {timeframe}. Use one of {list(tf_map)}")
 
     tf_url = tf_map[timeframe]
-
     all_data = []
 
     current_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
     end_date_limit = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
 
     while current_date <= end_date_limit:
-        url = f"https://datafeed.dukascopy.com/datafeed/{symbol}/{current_date.year}/{current_date.month-1:02d}/{current_date.day:02d}/{tf_url}_candles.bi5"
+        # FIX: Dukascopy uses 0-indexed months (Jan=00 … Dec=11)
+        month_idx = current_date.month - 1
+        url = (
+            f"https://datafeed.dukascopy.com/datafeed/{symbol}/"
+            f"{current_date.year}/{month_idx:02d}/{current_date.day:02d}/{tf_url}_candles.bi5"
+        )
 
-        data = _fetch_with_retry(url)
-        if data:
+        raw = _fetch_with_retry(url)
+        if raw:
             try:
-                decompressed = lzma.decompress(data)
-                parsed = _parse_bi5(decompressed, current_date, timeframe)
+                decompressed = lzma.decompress(raw)
+                parsed = _parse_bi5(decompressed, current_date)
                 all_data.extend(parsed)
             except Exception as e:
-                logger.error(f"Error parsing data for {current_date}: {e}")
+                logger.error(f"Error parsing data for {current_date.date()}: {e}")
 
         current_date += timedelta(days=1)
 
     if not all_data:
-        return pd.DataFrame(columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
 
     df = pd.DataFrame(all_data)
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s', utc=True)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True)
 
-    # Validation
-    df = df[(df['close'] >= 500) & (df['close'] <= 5000)]
+    # Validate price range for XAUUSD
+    df = df[(df["close"] >= 500) & (df["close"] <= 5000)].copy()
 
-    # Filter by date range
-    df = df[(df['timestamp'] >= pd.Timestamp(start_date, tz='UTC')) &
-            (df['timestamp'] <= pd.Timestamp(end_date, tz='UTC'))]
+    # FIX: use tz_localize instead of deprecated pd.Timestamp(dt, tz=...)
+    start_ts = pd.Timestamp(start_date).tz_localize("UTC")
+    end_ts = pd.Timestamp(end_date).tz_localize("UTC")
+    df = df[(df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)]
 
     return df.reset_index(drop=True)
 
-def _fetch_with_retry(url, retries=3, backoff=2):
-    for i in range(retries):
+
+def _fetch_with_retry(url: str, retries: int = 3, backoff: int = 2):
+    """GET with exponential backoff on 5xx. Returns bytes or None."""
+    for attempt in range(retries):
         try:
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 return response.content
             elif response.status_code == 404:
-                logger.warning(f"Data not found: {url}")
+                logger.warning(f"Data not found (404): {url}")
                 return None
             elif 500 <= response.status_code < 600:
-                logger.error(f"Server error {response.status_code} for {url}. Retrying...")
+                logger.error(f"Server error {response.status_code} for {url}. Retry {attempt+1}/{retries}…")
             else:
-                logger.error(f"HTTP error {response.status_code} for {url}")
+                logger.error(f"HTTP {response.status_code} for {url}")
                 return None
         except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed: {e}. Retrying...")
+            logger.error(f"Request failed: {e}. Retry {attempt+1}/{retries}…")
 
-        time.sleep(backoff ** (i + 1))
+        time.sleep(backoff ** (attempt + 1))
+
     return None
 
-def _parse_bi5(data, date, timeframe):
+
+def _parse_bi5(data: bytes, date: datetime) -> list[dict]:
     """
-    Parsed .bi5 binary data.
-    Structure: 4-byte int (seconds from start of day/period) + 4x uint32 + 1 float
-    Dukascopy encodes prices as integers (price * point_multiplier).
-    XAUUSD point = 0.001 (3 decimal places).
+    Parse Dukascopy .bi5 binary candle data.
+
+    Struct per candle (big-endian):
+        i  — seconds offset from midnight of `date`
+        4I — open, high, low, close  (uint32, price * 1000 for XAUUSD)
+        f  — volume (float32)
     """
-    struct_fmt = '>i4If' # timestamp(i32), O/H/L/C(4xu32), vol(f32)
-    struct_size = struct.calcsize(struct_fmt)
+    struct_fmt = ">i4If"
+    struct_size = struct.calcsize(struct_fmt)  # 24 bytes
+    base_ts = int(date.replace(tzinfo=None).timestamp())  # naive UTC midnight
+
     records = []
-
-    base_ts = int(date.timestamp())
-
-    for i in range(0, len(data), struct_size):
-        if i + struct_size > len(data):
-            break
-
+    for offset in range(0, len(data) - struct_size + 1, struct_size):
         try:
-            time_offset, op, hi, lo, cl, vol = struct.unpack(struct_fmt, data[i:i+struct_size])
-            # XAUUSD point = 0.001
-            records.append({
-                'timestamp': base_ts + time_offset,
-                'open': op / 1000.0,
-                'high': hi / 1000.0,
-                'low': lo / 1000.0,
-                'close': cl / 1000.0,
-                'volume': vol
-            })
-        except Exception:
+            time_offset, op, hi, lo, cl, vol = struct.unpack(
+                struct_fmt, data[offset : offset + struct_size]
+            )
+            records.append(
+                {
+                    "timestamp": base_ts + time_offset,
+                    "open":  op  / 1000.0,
+                    "high":  hi  / 1000.0,
+                    "low":   lo  / 1000.0,
+                    "close": cl  / 1000.0,
+                    "volume": vol,
+                }
+            )
+        except struct.error:
             continue
 
     return records
 
-def fetch_and_store(symbol, start_date, end_date, timeframe, db_conn):
+
+def fetch_and_store(
+    symbol: str,
+    start_date: datetime,
+    end_date: datetime,
+    timeframe: str,
+    db_conn,
+) -> None:
     """
-    Calls fetch_ohlcv() and upserts into ohlcv_xauusd table.
+    Fetch OHLCV data and upsert into ohlcv_xauusd.
+    Uses execute_values() for batch inserts (10-50x faster than row-by-row).
+    Column names match schema.sql: timestamp, open, high, low, close, volume, source.
     """
     df = fetch_ohlcv(symbol, start_date, end_date, timeframe)
 
     if df.empty:
-        logger.warning(f"No data fetched for {symbol} from {start_date} to {end_date}")
+        logger.warning(f"No data fetched for {symbol} {start_date} – {end_date}")
         return
 
+    # FIX: column names now match schema.sql exactly
+    # FIX: use execute_values for batch insert instead of iterrows + execute
+    # FIX: commit happens AFTER execute, not before
+    rows = [
+        (
+            row["timestamp"].to_pydatetime(),
+            row["open"],
+            row["high"],
+            row["low"],
+            row["close"],
+            row["volume"],
+            "dukascopy",
+        )
+        for _, row in df.iterrows()
+    ]
+
+    sql = """
+        INSERT INTO ohlcv_xauusd (timestamp, open, high, low, close, volume, source)
+        VALUES %s
+        ON CONFLICT (timestamp) DO NOTHING
+    """
+
     with db_conn.cursor() as cur:
-        # Progress logging per month
-        last_logged_month = None
+        # Log progress per month before the batch
+        months = df["timestamp"].dt.to_period("M").unique()
+        for m in months:
+            logger.info(f"Storing data for {m}")
 
-        for _, row in df.iterrows():
-            current_month = row['timestamp'].month
-            if current_month != last_logged_month:
-                logger.info(f"Storing data for {row['timestamp'].strftime('%Y-%m')}")
-                last_logged_month = current_month
-                db_conn.commit() # Commit monthly
+        psycopg2.extras.execute_values(cur, sql, rows, page_size=1000)
 
-            cur.execute("""
-                INSERT INTO ohlcv_xauusd (ts, open_price, high_price, low_price, close_price, volume, source)
-                VALUES (%s, %s, %s, %s, %s, %s, 'dukascopy')
-                ON CONFLICT (ts) DO NOTHING
-            """, (
-                row['timestamp'],
-                row['open'],
-                row['high'],
-                row['low'],
-                row['close'],
-                row['volume']
-            ))
-
-        db_conn.commit()
-
-    logger.info(f"Successfully stored {len(df)} rows for {symbol}")
+    db_conn.commit()  # FIX: single commit after all rows are inserted
+    logger.info(f"Stored {len(rows)} rows for {symbol}")
