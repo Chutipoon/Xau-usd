@@ -19,7 +19,8 @@ torch>=2.2.0
 arch>=6.3.0
 
 # Orchestration
-apache-airflow>=2.8.0
+apache-airflow==2.10.3
+structlog==24.4.0
 
 # Visualization / monitoring
 matplotlib>=3.8.0
