@@ -1,91 +1,53 @@
 groups:
   - name: xauusd_trading_alerts
-    interval: 5m
     rules:
-
-      # Alert 1: Data freshness
       - alert: OHLCVDataStale
-        expr: |
-          (extract(epoch from (now() - max(timestamp))) from ohlcv_xauusd) > 7200
+        expr: data_lag_seconds > 7200
         for: 5m
         labels:
           severity: critical
-          component: data_ingestion
         annotations:
           summary: "OHLCV data lag > 2 hours"
-          description: "Latest OHLCV timestamp: {{ $value | humanizeDuration }} ago. Check Dukascopy endpoint."
-          dashboard: "https://grafana.local/d/xauusd-dashboard"
-          runbook: "See docs/DEPLOYMENT.md — Dukascopy troubleshooting"
 
-      # Alert 2: Bridge forecast stale
       - alert: BridgeForecastStale
-        expr: |
-          (extract(epoch from (now() - max(timestamp))) from signals) > 86400
+        expr: signal_lag_seconds > 86400
         for: 2h
         labels:
           severity: warning
-          component: signal_generation
         annotations:
           summary: "Bridge forecast unchanged for 24h"
-          description: "No new signals in signals table. Airflow DAG may be hung."
-          dashboard: "https://grafana.local/d/xauusd-dashboard"
-          runbook: "Check Airflow: dag_signal_generation status, logs"
 
-      # Alert 3: Signals table no data
       - alert: SignalsTableEmpty
-        expr: |
-          (extract(epoch from (now() - max(timestamp))) from signals) > 28800
+        expr: signal_lag_seconds > 28800
         for: 1h
         labels:
           severity: critical
-          component: orchestration
         annotations:
           summary: "No new signals for 8 hours"
-          description: "signals table not updated. Airflow DAG failure."
-          dashboard: "https://grafana.local/d/xauusd-dashboard"
-          runbook: "Check Airflow logs: airflow dags list, airflow tasks failed"
 
-      # Alert 4: GDELT data stale (if using BigQuery backfill)
       - alert: GDELTFeatureStale
-        expr: |
-          (extract(epoch from (now() - max(timestamp))) from gdelt_features) > 3600
+        expr: gdelt_lag_seconds > 3600
         for: 15m
         labels:
           severity: warning
-          component: alternative_data
         annotations:
           summary: "GDELT features stale > 1 hour"
-          description: "Last GDELT feature computed: {{ $value | humanizeDuration }} ago. Check gdelt-doc-api or BigQuery."
-          dashboard: "https://grafana.local/d/xauusd-dashboard"
-          runbook: "Fallback: use COT+macro only until GDELT recovers"
 
-      # Alert 5: COT data missing (weekly)
       - alert: COTDataMissing
-        expr: |
-          (extract(epoch from (now() - max(week_date))) from cot_xauusd) > 604800
+        expr: cot_lag_seconds > 604800
         for: 24h
         labels:
           severity: warning
-          component: data_ingestion
         annotations:
           summary: "COT data older than 1 week"
-          description: "Last COT update: {{ $value | humanizeDuration }} ago. CFTC publish may be delayed."
-          dashboard: "https://grafana.local/d/xauusd-dashboard"
-          runbook: "Manual trigger: python scripts/sync_cot.py"
 
-      # Alert 6: Model drift (placeholder — requires PSI calculation)
       - alert: ModelDriftDetected
-        expr: |
-          psi_lstm > 0.2
+        expr: psi_lstm > 0.2
         for: 1h
         labels:
           severity: warning
-          component: model
         annotations:
           summary: "LSTM model drift PSI > 0.2"
-          description: "Input distribution shifted. Retraining recommended."
-          dashboard: "https://grafana.local/d/xauusd-dashboard"
-          runbook: "Run: python scripts/train_lstm.py --data-path data/features.parquet"
 
 notification_channels:
   - name: slack_alerts
@@ -93,7 +55,6 @@ notification_channels:
     settings:
       url: "${SLACK_WEBHOOK_URL}"
       channel: "#xauusd-alerts"
-      username: "Grafana Bot"
 
   - name: email_critical
     type: email
