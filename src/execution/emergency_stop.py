@@ -20,6 +20,7 @@ def emergency_stop(reason: str, db_conn, pst_system=None) -> Dict:
     start_time = time.time()
     try:
         cursor = db_conn.cursor()
+        # Bug Fix #1: Zero all active signals (last 1 hour), preserving history
         cursor.execute("""
             UPDATE signals
             SET bridge_forecast = 0,
@@ -37,6 +38,7 @@ def emergency_stop(reason: str, db_conn, pst_system=None) -> Dict:
             except Exception as e:
                 logger.error(f"[EMERGENCY STOP] pysystemtrade close failed: {e}")
 
+        # Bug Fix #2: Use timezone-aware now()
         cursor.execute("""
             INSERT INTO emergency_stop_log (timestamp, reason, positions_closed, status)
             VALUES (%s, %s, %s, %s)

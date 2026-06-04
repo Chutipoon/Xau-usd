@@ -167,7 +167,7 @@ Expected output:
 ### 2. Start watchdog (continuous monitoring)
 
 ```bash
-python -m src.execution.watchdog_service python -m src.execution.watchdog_service python -m src.execution.watchdog_service python src/execution/watchdog.py &
+python src/execution/watchdog_service.py &
 ```
 
 Watchdog monitors:
@@ -257,7 +257,7 @@ psql -d xauusd -c "SELECT * FROM emergency_stop_log ORDER BY timestamp DESC LIMI
 
 # 3. Restart system
 python scripts/check_health.py          # Verify data ok
-python -m src.execution.watchdog_service python -m src.execution.watchdog_service python -m src.execution.watchdog_service python src/execution/watchdog.py &      # Resume monitoring
+python src/execution/watchdog_service.py &      # Resume monitoring
 # Airflow/pysystemtrade resume automatically
 ```
 

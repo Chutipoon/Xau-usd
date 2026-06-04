@@ -1,20 +1,29 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
+import os
+import psycopg2
 
 def run_hmm_predict():
+    from src.models.hmm_regime import RegimeHMM
+    # Load model and predict
     print("Predicting regime posterior with HMM...")
     return "hmm_posterior_data"
 
 def run_lstm_predict():
+    from src.models.lstm_signal import LSTMTrainer, LSTMSignalModel
+    # Load model and predict
     print("Predicting direction signal with LSTM...")
     return "lstm_signal_data"
 
 def run_garch_forecast():
+    from src.models.garch_vol import RegimeGARCH
+    # Load model and forecast
     print("Forecasting volatility with GARCH...")
     return "garch_vol_data"
 
 def run_regime_bridge():
+    from src.execution.regime_signal_bridge import RegimeSignalBridge
     print("Translating outputs to pysystemtrade forecast...")
     return "bridge_forecast_data"
 

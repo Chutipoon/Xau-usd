@@ -2,7 +2,8 @@ groups:
   - name: xauusd_trading_alerts
     rules:
       - alert: OHLCVDataStale
-        expr: data_lag_seconds > 7200
+        expr: |
+          (time() - max(ohlcv_xauusd_last_timestamp_seconds)) > 7200
         for: 5m
         labels:
           severity: critical
@@ -10,7 +11,8 @@ groups:
           summary: "OHLCV data lag > 2 hours"
 
       - alert: BridgeForecastStale
-        expr: signal_lag_seconds > 86400
+        expr: |
+          (time() - max(signals_last_timestamp_seconds)) > 86400
         for: 2h
         labels:
           severity: warning
@@ -18,7 +20,8 @@ groups:
           summary: "Bridge forecast unchanged for 24h"
 
       - alert: SignalsTableEmpty
-        expr: signal_lag_seconds > 28800
+        expr: |
+          (time() - max(signals_last_timestamp_seconds)) > 28800
         for: 1h
         labels:
           severity: critical
@@ -26,7 +29,8 @@ groups:
           summary: "No new signals for 8 hours"
 
       - alert: GDELTFeatureStale
-        expr: gdelt_lag_seconds > 3600
+        expr: |
+          (time() - max(gdelt_features_last_timestamp_seconds)) > 3600
         for: 15m
         labels:
           severity: warning
@@ -34,20 +38,22 @@ groups:
           summary: "GDELT features stale > 1 hour"
 
       - alert: COTDataMissing
-        expr: cot_lag_seconds > 604800
+        expr: |
+          (time() - max(cot_xauusd_last_week_date_seconds)) > 604800
         for: 24h
         labels:
           severity: warning
         annotations:
           summary: "COT data older than 1 week"
 
-      - alert: ModelDriftDetected
-        expr: psi_lstm > 0.2
+      - alert: GARCHVolSpike
+        expr: |
+          signals_garch_vol_forecast > 0.40
         for: 1h
         labels:
           severity: warning
         annotations:
-          summary: "LSTM model drift PSI > 0.2"
+          summary: "GARCH vol forecast > 40% (high risk)"
 
 notification_channels:
   - name: slack_alerts

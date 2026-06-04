@@ -38,8 +38,10 @@ class WalkForwardBacktester:
         start_date = data.index.min()
         window_results = []
 
-        step_delta = timedelta(weeks=self.overlap_weeks)
+        # Correct walk-forward: windows advance by test duration, adjusted for overlap
+        # 1-month test, 2-week overlap -> advance by 2 weeks
         window_duration = timedelta(days=30 * self.test_months)
+        step_delta = window_duration - timedelta(weeks=self.overlap_weeks)
 
         for i in range(self.n_windows):
             window_start = start_date + i * step_delta

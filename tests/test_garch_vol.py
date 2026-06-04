@@ -6,13 +6,13 @@ from src.models.garch_vol import RegimeGARCH
 def test_position_size_capping():
     garch = RegimeGARCH()
     # Mock forecast_vol by monkeypatching
-    garch.forecast_vol = lambda rid: 0.02 # 2% vol -> size = 0.1/0.02 = 5.0 -> cap 2.0
+    garch.forecast_vol = lambda rid, frequency="H1": 0.02 # 2% vol -> size = 0.1/0.02 = 5.0 -> cap 2.0
     assert garch.position_size(0) == 2.0
 
-    garch.forecast_vol = lambda rid: 2.0 # 200% vol -> size = 0.1/2.0 = 0.05 -> cap 0.1
+    garch.forecast_vol = lambda rid, frequency="H1": 2.0 # 200% vol -> size = 0.1/2.0 = 0.05 -> cap 0.1
     assert garch.position_size(0) == 0.1
 
-    garch.forecast_vol = lambda rid: 0.1 # 10% vol -> size = 0.1/0.1 = 1.0
+    garch.forecast_vol = lambda rid, frequency="H1": 0.1 # 10% vol -> size = 0.1/0.1 = 1.0
     assert garch.position_size(0) == 1.0
 
 def test_garch_fit_all():

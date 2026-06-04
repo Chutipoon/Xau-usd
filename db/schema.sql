@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS cot_xauusd (
     noncomm_net BIGINT NOT NULL DEFAULT 0,
     comm_net    BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT chk_cot_date_not_future CHECK (week_date <= CURRENT_DATE),
-    CONSTRAINT chk_cot_net_range CHECK (net_long BETWEEN -500000 AND 500000),
+    CONSTRAINT chk_cot_net_range CHECK (net_long BETWEEN -300000 AND 300000),
     PRIMARY KEY (week_date)
 );
 
