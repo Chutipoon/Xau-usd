@@ -1,6 +1,20 @@
 import pytest
 from airflow.models import DagBag
+from airflow.utils.db import initdb
 import os
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_airflow_db():
+    """Initialize Airflow database for tests"""
+    # Use a temporary sqlite DB for tests to avoid conflicts
+    os.environ['AIRFLOW__DATABASE__SQL_ALCHEMY_CONN'] = 'sqlite:////tmp/airflow_test.db'
+    initdb()
+    yield
+    if os.path.exists('/tmp/airflow_test.db'):
+        try:
+            os.remove('/tmp/airflow_test.db')
+        except:
+            pass
 
 def test_dag_loading():
     dagbag = DagBag(dag_folder='dags/', include_examples=False)
