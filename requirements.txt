@@ -1,6 +1,6 @@
 # Core data
 requests>=2.31.0
-pandas>=2.0.0
+pandas>=2.2.3
 numpy>=1.26.0
 
 # Database
@@ -27,3 +27,4 @@ matplotlib>=3.8.0
 
 # Dev / test
 pytest>=8.0.0
+pytest-mock>=3.10.0
