@@ -126,18 +126,19 @@ class Watchdog:
         try:
             cursor.execute("""
                 WITH equity AS (
+                    -- Start at 1.0 equity
                     SELECT timestamp,
-                           SUM(COALESCE(garch_vol, 1.0) * bridge_forecast / 100)
-                           OVER (ORDER BY timestamp) as equity
+                           EXP(SUM(COALESCE(garch_vol, 1.0) * bridge_forecast / 2000.0)
+                           OVER (ORDER BY timestamp)) as equity
                     FROM signals
                     WHERE timestamp > NOW() - INTERVAL '30 days'
                 ),
-                dd AS (
-                    SELECT MAX(equity) OVER (ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as peak,
-                           equity
+                peaks AS (
+                    SELECT equity,
+                           MAX(equity) OVER (ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as peak
                     FROM equity
                 )
-                SELECT (1 - MIN(equity) / NULLIF(MAX(peak), 0)) as max_dd FROM dd
+                SELECT COALESCE(MAX(1 - equity / NULLIF(peak, 0)), 0) as max_dd FROM peaks
             """)
             result = cursor.fetchone()
             max_dd = result[0] if result and result[0] is not None else 0

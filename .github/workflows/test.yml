@@ -19,12 +19,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest-mock
-        # Mock pysystemtrade for CI if not installing full git repo
         pip install git+https://github.com/robcarver17/pysystemtrade.git
     - name: Run tests
       run: |
-        # Airflow tests need a bit of setup or to be skipped in CI if no DB
-        export AIRFLOW_HOME=$(pwd)/airflow
-        airflow db migrate
-        python -m pytest -k "not test_dag_structure"
+        python -m pytest tests/ -v
