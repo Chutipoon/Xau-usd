@@ -15,7 +15,8 @@ def fetch_cot_gold(start_year: int, end_year: int) -> pd.DataFrame:
     for year in range(start_year, end_year + 1):
         try:
             # cot_download_year returns a DataFrame for the given year and report type
-            df_year = cot_download_year(year=year, cot_report_type='legacy')
+            # FIX: use 'legacy_fut' (futures-only) to match COMEX Gold 088691
+            df_year = cot_download_year(year=year, cot_report_type='legacy_fut')
 
             # Filter for Gold futures
             gold_df = df_year[df_year['CFTC_Commodity_Code'].astype(str) == '088691'].copy()
@@ -55,12 +56,13 @@ def validate_cot(df: pd.DataFrame) -> bool:
         logger.error("Validation failed: NaNs found in numeric columns")
         return False
 
-    # Check gaps (Warning only, do not block storage if CFTC is delayed)
+    # Check gaps (Gaps > 14 days are considered invalid as per Blueprint #4)
     dates = pd.to_datetime(df['week_date']).sort_values()
     diffs = dates.diff().dropna()
     if (diffs > pd.Timedelta(days=14)).any():
         max_gap = diffs.max()
-        logger.warning(f"Validation warning: Date gap found ({max_gap}). CFTC report might be delayed.")
+        logger.error(f"Validation failed: Date gap too large ({max_gap}).")
+        return False
 
     # Check net_long range: -300000 to +300000
     if (df['net_long'] < -300000).any() or (df['net_long'] > 300000).any():
