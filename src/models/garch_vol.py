@@ -32,10 +32,13 @@ class RegimeGARCH:
             return 0.15 # Default 15% vol
 
         res = self.models[regime_id]
-        forecast = res.forecast(horizon=horizon)
-        # The arch library's forecast() method automatically returns values on the
-        # original data scale, even when internal rescaling is applied.
+        forecast = res.forecast(horizon=horizon, reindex=False)
+        # Bug Fix: arch library's forecast().variance returns values on the RESCALED scale
+        # if rescale=True was used and reindex=False or certain versions of arch.
+        # We must manually scale back by dividing by scale^2.
         var_forecast = forecast.variance.values[-1, -1]
+        if hasattr(res, 'scale') and res.scale != 1.0:
+            var_forecast = var_forecast / (res.scale ** 2)
 
         # Annualize based on data frequency
         # H1: 252 * 24

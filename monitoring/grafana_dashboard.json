@@ -86,7 +86,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(timestamp))) as data_lag_seconds FROM ohlcv_xauusd",
+          "rawSql": "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(ts))) as data_lag_seconds FROM ohlcv_xauusd",
           "refId": "A",
           "select": [
             [
@@ -99,7 +99,7 @@
             ]
           ],
           "table": "ohlcv_xauusd",
-          "timeColumn": "timestamp",
+          "timeColumn": "ts",
           "where": [
             {
               "name": "$__timeFilter",
@@ -286,7 +286,7 @@
           },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT timestamp, event_spike_zscore FROM gdelt_features WHERE timestamp > NOW() - INTERVAL '7 days' ORDER BY timestamp",
+          "rawSql": "SELECT ts, event_spike_zscore FROM gdelt_features WHERE ts > NOW() - INTERVAL '7 days' ORDER BY ts",
           "refId": "A"
         }
       ],

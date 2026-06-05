@@ -351,8 +351,8 @@ SELECT * FROM signals ORDER BY timestamp DESC LIMIT 10;
 SELECT * FROM emergency_stop_log ORDER BY timestamp DESC LIMIT 10;
 
 -- GDELT features
-SELECT timestamp, event_spike_zscore, tone_7d_avg FROM gdelt_features
-  ORDER BY timestamp DESC LIMIT 10;
+SELECT ts, event_spike_zscore, tone_7d_avg FROM gdelt_features
+  ORDER BY ts DESC LIMIT 10;
 
 -- Regime transitions
 SELECT timestamp, hmm_regime FROM signals

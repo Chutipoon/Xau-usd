@@ -69,7 +69,8 @@ def test_fetch_and_store_calls_db():
     mock_record = struct.pack('>i4If', 0, 2000000, 2010000, 1990000, 2005000, 100.0)
     compressed_data = lzma.compress(mock_record)
 
-    with patch('src.data.dukascopy_fetcher.requests.get') as mock_get:
+    with patch('src.data.dukascopy_fetcher.requests.get') as mock_get, \
+         patch('src.data.dukascopy_fetcher.psycopg2.extras.execute_values') as mock_execute_values:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.content = compressed_data
@@ -82,8 +83,10 @@ def test_fetch_and_store_calls_db():
         end_date = datetime(2024, 1, 1)
         fetch_and_store('XAUUSD', start_date, end_date, '1h', mock_db_conn)
 
-        assert mock_cursor.execute.called
+        assert mock_execute_values.called
         # Check if INSERT statement was called
-        args, _ = mock_cursor.execute.call_args
-        assert "INSERT INTO ohlcv_xauusd" in args[0]
+        args, _ = mock_execute_values.call_args
+        assert "INSERT INTO ohlcv_xauusd" in args[1]
+        assert "ts" in args[1]
+        assert "open_price" in args[1]
         assert mock_db_conn.commit.called
