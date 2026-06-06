@@ -124,7 +124,7 @@ class Watchdog:
     def check_data_freshness(self) -> bool:
         cursor = self.db_conn.cursor()
         try:
-            cursor.execute("SELECT EXTRACT(EPOCH FROM (NOW() - MAX(timestamp))) FROM ohlcv_xauusd")
+            cursor.execute("SELECT EXTRACT(EPOCH FROM (NOW() - MAX(ts))) FROM ohlcv_xauusd")
             result = cursor.fetchone()
             lag_sec = result[0] if result and result[0] is not None else 999999
             return lag_sec <= 3600
@@ -176,7 +176,7 @@ class Watchdog:
     def check_gdelt_health(self) -> bool:
         cursor = self.db_conn.cursor()
         try:
-            cursor.execute("SELECT EXTRACT(EPOCH FROM (NOW() - MAX(timestamp))) FROM gdelt_features")
+            cursor.execute("SELECT EXTRACT(EPOCH FROM (NOW() - MAX(ts))) FROM gdelt_features")
             result = cursor.fetchone()
             lag_sec = result[0] if result and result[0] is not None else 999999
             return True # Non-fatal

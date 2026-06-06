@@ -44,8 +44,8 @@ def test_validate_cot_gaps():
         'noncomm_net': [100000, 100000],
         'comm_net': [-50000, -50000]
     })
-    # Gaps are now warning-only and should not return False
-    assert validate_cot(df) is True
+    # Gaps > 14 days should return False per blueprint
+    assert validate_cot(df) is False
 
 def test_validate_cot_range():
     df = pd.DataFrame({

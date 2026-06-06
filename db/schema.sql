@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS gdelt_features (
     event_spike_zscore     DOUBLE PRECISION,
     tone_price_divergence  DOUBLE PRECISION,
     article_count          INTEGER          DEFAULT 0,
-    CONSTRAINT chk_gdelt_zscore CHECK (event_spike_zscore BETWEEN -10 AND 10),
+    CONSTRAINT chk_gdelt_zscore CHECK (event_spike_zscore BETWEEN -15 AND 15),
     CONSTRAINT uq_gdelt_ts UNIQUE (ts)
 );
 

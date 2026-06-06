@@ -38,10 +38,10 @@ def main():
         sys.exit(1)
 
     checks = [
-        ('OHLCV', 'ohlcv_xauusd', 'timestamp', 3600), # 1 hour
+        ('OHLCV', 'ohlcv_xauusd', 'ts', 3600),          # 1 hour
         ('FRED', 'macro_fred', 'obs_date', 172800),    # 2 days
         ('COT', 'cot_xauusd', 'week_date', 691200),     # 8 days
-        ('GDELT', 'gdelt_features', 'timestamp', 3600), # 1 hour
+        ('GDELT', 'gdelt_features', 'ts', 3600),        # 1 hour
         ('Signals', 'signals', 'timestamp', 3600)      # 1 hour
     ]
 

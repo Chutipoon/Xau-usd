@@ -150,7 +150,7 @@ def fetch_and_store(
         logger.warning(f"No data fetched for {symbol} {start_date} – {end_date}")
         return
 
-    # FIX: column names now match schema.sql exactly
+    # FIX: column names now match schema.sql exactly (ts, open_price, ...)
     # FIX: use execute_values for batch insert instead of iterrows + execute
     # FIX: commit happens AFTER execute, not before
     rows = [
@@ -167,9 +167,9 @@ def fetch_and_store(
     ]
 
     sql = """
-        INSERT INTO ohlcv_xauusd (timestamp, open, high, low, close, volume, source)
+        INSERT INTO ohlcv_xauusd (ts, open_price, high_price, low_price, close_price, volume, source)
         VALUES %s
-        ON CONFLICT (timestamp) DO NOTHING
+        ON CONFLICT (ts) DO NOTHING
     """
 
     with db_conn.cursor() as cur:
