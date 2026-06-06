@@ -9,59 +9,64 @@ import psycopg2.extras
 
 logger = logging.getLogger(__name__)
 
-XAU_THEMES = [
-    'gold', 'XAUUSD', 'inflation', 'federal reserve', 'interest rate',
-    'geopolitical', 'war', 'central bank', 'safe haven', 'dollar'
+# GKG Themes related to XAU/USD
+XAU_GKG_THEMES = [
+    'ECON_GOLD', 'ECON_INFLATION', 'ECON_CENTRALBANK_FEDERAL_RESERVE',
+    'ECON_INTEREST_RATES', 'WAR', 'CONFLICT', 'ECON_CURRENCY', 'ECON_MONETARYPOLICY'
 ]
 
-def fetch_gdelt_bigquery(start_date: str, end_date: str, max_gb_per_month: float = 800.0) -> pd.DataFrame:
+# Keywords for URL matching as a backup
+XAU_KEYWORDS = [
+    'gold', 'xauusd', 'inflation', 'federal reserve', 'interest rate',
+    'geopolitical', 'central bank', 'safe haven', 'dollar'
+]
+
+def fetch_gdelt_bigquery(start_date: str, end_date: str, max_gb_per_query: float = 50.0) -> pd.DataFrame:
     """
-    Queries BigQuery GDELT public dataset for XAU-related events.
+    Queries BigQuery GDELT GKG partitioned table for XAU-related content.
     Aggregates by hour.
     """
     project_id = os.getenv('GOOGLE_CLOUD_PROJECT')
     client = bigquery.Client(project=project_id)
 
-    # Convert dates to YYYYMMDD for wildcard table filtering
-    start_fmt = start_date.replace('-', '')
-    end_fmt = end_date.replace('-', '')
+    # Use _PARTITIONTIME for efficient partition pruning
+    theme_filter = "|".join(XAU_GKG_THEMES)
+    keyword_regex = "|".join([fr"\b{kw.replace(' ', '[ -]')}\b" for kw in XAU_KEYWORDS])
 
-    # Construct the query with hourly aggregation
-    # Using REGEXP_CONTAINS with word boundaries for more robust matching
-    theme_regex = "|".join([fr"\b{theme.replace(' ', '[ -]')}\b" for theme in XAU_THEMES])
-
+    # GKG query using Themes and DocumentIdentifier (URL)
+    # V2Tone is comma-separated, first element is Average Tone
     query = f"""
         SELECT
             TIMESTAMP_TRUNC(PARSE_TIMESTAMP('%Y%m%d%H%M%S', CAST(DATEADDED AS STRING)), HOUR) as ts,
-            AVG(AvgTone) as tone,
-            COUNT(DISTINCT SOURCEURL) as article_count
+            AVG(SAFE_CAST(SPLIT(V2Tone, ',')[OFFSET(0)] AS FLOAT64)) as tone,
+            COUNT(DISTINCT DocumentIdentifier) as article_count
         FROM
-            `bigquery-public-data.gdeltv2.events_*`
+            `gdelt-bq.gdeltv2.gkg_partitioned`
         WHERE
-            _TABLE_SUFFIX BETWEEN '{start_fmt}' AND '{end_fmt}'
-            AND REGEXP_CONTAINS(LOWER(SOURCEURL), r'{theme_regex.lower()}')
+            _PARTITIONTIME BETWEEN TIMESTAMP(@start_date) AND TIMESTAMP(@end_date)
+            AND (
+                REGEXP_CONTAINS(Themes, r'{theme_filter}')
+                OR REGEXP_CONTAINS(LOWER(DocumentIdentifier), r'{keyword_regex.lower()}')
+            )
         GROUP BY 1
         ORDER BY 1
     """
 
+    query_params = [
+        bigquery.ScalarQueryParameter("start_date", "STRING", start_date),
+        bigquery.ScalarQueryParameter("end_date", "STRING", end_date),
+    ]
+
     try:
-        # Dry run to estimate quota usage
-        job_config = bigquery.QueryJobConfig(dry_run=True, use_query_cache=False)
-        query_job = client.query(query, job_config=job_config)
-        gb_scanned = query_job.total_bytes_processed / (1024**3)
+        # Use maximum_bytes_billed to enforce quota safely
+        max_bytes = int(max_gb_per_query * 1024**3)
+        job_config = bigquery.QueryJobConfig(
+            maximum_bytes_billed=max_bytes,
+            query_parameters=query_params
+        )
 
-        logger.info(f"BigQuery Dry Run: {gb_scanned:.2f} GB estimated.")
+        logger.info(f"Executing BigQuery GKG fetch from {start_date} to {end_date} (Max {max_gb_per_query}GB)")
 
-        # Check against monthly quota
-        if gb_scanned > max_gb_per_month:
-            logger.error(f"Query exceeds monthly quota: {gb_scanned:.2f}GB > {max_gb_per_month}GB")
-            return pd.DataFrame()
-
-        if gb_scanned > 700:
-            logger.warning(f"BigQuery usage: {gb_scanned:.2f}GB approaching {max_gb_per_month}GB limit this month")
-
-        # Execute the actual query
-        job_config = bigquery.QueryJobConfig(dry_run=False)
         df = client.query(query, job_config=job_config).to_dataframe()
 
         if df.empty:
@@ -117,13 +122,14 @@ def fetch_and_store_gdelt_historical(start_date: str, end_date: str, db_conn):
     """
     Main entry point for historical backfill.
     """
-    df_gdelt = fetch_gdelt_bigquery(start_date, end_date)
+    # Use a conservative max_gb_per_query since GKG is large
+    df_gdelt = fetch_gdelt_bigquery(start_date, end_date, max_gb_per_query=100.0)
 
     if df_gdelt.empty:
         logger.error("No GDELT data fetched. Historical backfill aborted.")
         return
 
-    # Fetch Price series
+    # Fetch Price series using column names matching schema.sql (ts, close_price)
     with db_conn.cursor() as cur:
         cur.execute("SELECT ts, close_price FROM ohlcv_xauusd WHERE ts >= %s AND ts <= %s", (df_gdelt['ts'].min(), df_gdelt['ts'].max()))
         price_data = cur.fetchall()
@@ -153,6 +159,7 @@ def fetch_and_store_gdelt_historical(start_date: str, end_date: str, db_conn):
             ))
 
     if rows_to_insert:
+        # Schema includes article_count as per db/schema.sql
         sql = """
             INSERT INTO gdelt_features (ts, tone_7d_avg, tone_30d_avg, event_spike_zscore, tone_price_divergence, article_count)
             VALUES %s

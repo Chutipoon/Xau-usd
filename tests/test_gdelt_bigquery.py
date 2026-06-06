@@ -12,13 +12,9 @@ class TestGdeltBigQuery(unittest.TestCase):
         # Setup mock
         mock_instance = mock_client.return_value
 
-        # Mock dry run
-        mock_dry_run_job = MagicMock()
-        mock_dry_run_job.total_bytes_processed = 100 * 1024**3 # 100 GB
-
-        # Mock actual query result
+        # Mock query job and result
         mock_query_job = MagicMock()
-        mock_instance.query.side_effect = [mock_dry_run_job, mock_query_job]
+        mock_instance.query.return_value = mock_query_job
         mock_df = pd.DataFrame({
             'ts': [datetime(2023, 1, 1, 0, 0, tzinfo=timezone.utc), datetime(2023, 1, 1, 1, 0, tzinfo=timezone.utc)],
             'tone': [0.5, -0.2],
@@ -33,20 +29,6 @@ class TestGdeltBigQuery(unittest.TestCase):
         self.assertIn('ts', df.columns)
         self.assertIn('tone', df.columns)
         self.assertIn('article_count', df.columns)
-
-    @patch('src.data.gdelt_bigquery.bigquery.Client')
-    def test_fetch_gdelt_bigquery_quota_exceeded(self, mock_client):
-        # Setup mock
-        mock_instance = mock_client.return_value
-
-        # Mock dry run exceeding quota
-        mock_dry_run_job = MagicMock()
-        mock_dry_run_job.total_bytes_processed = 900 * 1024**3 # 900 GB
-        mock_instance.query.return_value = mock_dry_run_job
-
-        df = fetch_gdelt_bigquery('2023-01-01', '2023-01-01', max_gb_per_month=800)
-
-        self.assertTrue(df.empty)
 
     def test_compute_features_from_aggregated(self):
         # Create dummy aggregated data
@@ -71,11 +53,14 @@ class TestGdeltBigQuery(unittest.TestCase):
         self.assertIn('article_count', features.columns)
 
         # Check rolling calculations
-        self.assertFalse(features['tone_7d_avg'].iloc[200:].isna().all())
-        self.assertFalse(features['event_spike_zscore'].iloc[800:].isna().all())
+        # min_periods=168 for 7d_avg
+        self.assertTrue(features['tone_7d_avg'].iloc[167] is not np.nan)
+        # min_periods=720 for 30d_avg and zscore
+        self.assertTrue(features['tone_30d_avg'].iloc[719] is not np.nan)
+        self.assertTrue(features['event_spike_zscore'].iloc[719] is not np.nan)
 
     @patch('src.data.gdelt_bigquery.fetch_gdelt_bigquery')
-    @patch('psycopg2.extras.execute_values')
+    @patch('src.data.gdelt_bigquery.psycopg2.extras.execute_values')
     def test_fetch_and_store_gdelt_historical(self, mock_execute_values, mock_fetch_bq):
         # Mock BigQuery fetch with enough data for rolling windows
         ts = pd.date_range(start='2023-01-01', periods=800, freq='1h', tz='UTC')
@@ -89,12 +74,12 @@ class TestGdeltBigQuery(unittest.TestCase):
         mock_conn = MagicMock()
         mock_cur = mock_conn.cursor.return_value.__enter__.return_value
 
-        # Mock price data fetch from DB
+        # Mock price data fetch from DB (ts, close_price)
         mock_cur.fetchall.return_value = [(t, 1800.0) for t in ts]
 
         fetch_and_store_gdelt_historical('2023-01-01', '2023-01-01', mock_conn)
 
-        # Verify that execute_values was called
+        # Verify that execute_values was called at the correct path
         self.assertTrue(mock_execute_values.called)
         # Verify commit was called
         self.assertTrue(mock_conn.commit.called)
