@@ -32,10 +32,11 @@ class RegimeSignalBridge:
             weight += hmm_posterior[rid] * mult
         return float(weight)
 
-def external_forecast_adapter(raw_data):
+def external_forecast_adapter(system, instrument_code, rule_variation_name):
     """
     Adapter for pysystemtrade to ingest the external forecast.
-    pysystemtrade expects a function that takes raw data and returns a pd.Series.
+    pysystemtrade trading rule signature: (system, instrument_code, rule_variation_name)
+    Returns: pd.Series indexed by date.
     """
     import os
     import psycopg2
@@ -50,7 +51,6 @@ def external_forecast_adapter(raw_data):
         result = cur.fetchone()
         if result:
             ts, forecast = result
-            # Ensure ts is UTC
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
         else:

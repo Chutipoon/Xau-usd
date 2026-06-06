@@ -107,4 +107,4 @@ def fetch_and_store_cot(start_year: int, end_year: int, db_conn):
         psycopg2.extras.execute_values(cur, sql, rows)
         db_conn.commit()
 
-    logger.info(f"COT Sync Complete: Processed {len(rows)} rows.")
+    logger.info(f"COT Sync Complete: Processed {len(rows)} rows into cot_xauusd.")

@@ -25,13 +25,8 @@ def main():
     df = pd.read_parquet(args.data_path)
 
     # We need returns and regimes
-    # If regimes are not in the parquet, we might need to use HMM to predict them first
-    # For this training script, we assume regimes are provided or we use a default
     if 'regime' not in df.columns:
-        print("Warning: 'regime' column not found. Deriving regimes from HMM if available...")
-        # Placeholder for HMM prediction logic if needed
-        # For now, we'll just assume they exist or use a single regime if missing
-        df['regime'] = 0
+        raise ValueError("Missing 'regime' column in training data. GARCH model requires regime labels.")
 
     print("Training GARCH models per regime...")
     garch = RegimeGARCH()

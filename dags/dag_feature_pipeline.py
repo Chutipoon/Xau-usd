@@ -5,12 +5,16 @@ import os
 import psycopg2
 import pandas as pd
 
+DAG_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(DAG_DIR)
+
 def compute_gdelt_features():
     from src.data.gdelt_fetcher import fetch_and_store_gdelt
     db_url = os.getenv('TIMESCALE_URL', 'postgresql://localhost/xauusd')
     conn = psycopg2.connect(db_url)
 
     # Need latest price for tone_price_divergence
+    # Fixed: Use 'ts' and 'close_price' as per schema.sql
     df_price = pd.read_sql("SELECT ts, close_price FROM ohlcv_xauusd ORDER BY ts DESC LIMIT 1000", conn)
     df_price['ts'] = pd.to_datetime(df_price['ts'], utc=True)
     price_series = df_price.set_index('ts')['close_price'].sort_index()
@@ -21,8 +25,6 @@ def compute_gdelt_features():
 
 def compute_technical_features():
     # Technical features are now calculated within assemble_feature_matrix
-    # to ensure they are joined correctly with other sources.
-    # We keep this task for DAG structure and potential future specialized tech indicators.
     print("Technical indicators will be computed during matrix assembly.")
     return "tech_features_ready"
 
@@ -33,7 +35,8 @@ def assemble_feature_matrix():
 
     df = assemble_feature_matrix(conn)
 
-    output_path = "data/feature_matrix.parquet"
+    # Use absolute path for Airflow stability
+    output_path = os.path.join(PROJECT_ROOT, "data", "feature_matrix.parquet")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     df.to_parquet(output_path)
 

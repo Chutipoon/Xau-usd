@@ -7,13 +7,20 @@ import json
 import pandas as pd
 import numpy as np
 
+DAG_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(DAG_DIR)
+
 def run_hmm_predict():
     from src.models.hmm_regime import RegimeHMM
 
-    df = pd.read_parquet("data/feature_matrix.parquet")
+    # Use absolute paths
+    matrix_path = os.path.join(PROJECT_ROOT, "data", "feature_matrix.parquet")
+    model_path = os.path.join(PROJECT_ROOT, "models", "hmm.pkl")
+
+    df = pd.read_parquet(matrix_path)
     hmm_features = ['returns', 'log_volume', 'realized_vol', 'yield_spread', 'cot_net_long', 'event_spike_zscore']
 
-    model = RegimeHMM.load("models/hmm.pkl")
+    model = RegimeHMM.load(model_path)
     proba = model.predict_proba(df[hmm_features])
     latest_proba = proba[-1]
 
@@ -25,8 +32,11 @@ def run_hmm_predict():
 def run_lstm_predict():
     from src.models.lstm_signal import LSTMTrainer, FEATURE_COLS
 
-    df = pd.read_parquet("data/feature_matrix.parquet")
-    trainer = LSTMTrainer.load("models/lstm.pt")
+    matrix_path = os.path.join(PROJECT_ROOT, "data", "feature_matrix.parquet")
+    model_path = os.path.join(PROJECT_ROOT, "models", "lstm.pt")
+
+    df = pd.read_parquet(matrix_path)
+    trainer = LSTMTrainer.load(model_path)
 
     X_raw = df[FEATURE_COLS].values
     X_scaled = trainer.scaler.transform(X_raw)
@@ -46,11 +56,13 @@ def run_garch_forecast(**context):
     hmm_output = context['ti'].xcom_pull(task_ids='run_hmm_predict')
     regime = hmm_output['regime']
 
+    model_path = os.path.join(PROJECT_ROOT, "models", "garch.pkl")
     # Load pre-trained GARCH model
-    garch = joblib.load("models/garch.pkl")
+    garch = joblib.load(model_path)
 
-    vol_forecast = garch.forecast_vol(regime, frequency='H1')
-    pos_size = garch.position_size(regime, frequency='H1')
+    # Fixed: Removed 'frequency' argument as per Issue #8 spec
+    vol_forecast = garch.forecast_vol(regime)
+    pos_size = garch.position_size(regime)
 
     return {
         "vol_forecast": vol_forecast,
