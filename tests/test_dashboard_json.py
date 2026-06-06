@@ -34,7 +34,7 @@ def test_alerts_yaml_validity():
     assert 'groups' in alerts
     group = alerts['groups'][0]
     assert group['name'] == "xauusd_trading_alerts"
-    assert len(group['rules']) == 3
+    assert len(group['rules']) == 6
 
     assert 'notification_channels' in alerts
     assert len(alerts['notification_channels']) == 2

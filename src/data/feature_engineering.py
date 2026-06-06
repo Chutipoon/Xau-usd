@@ -79,6 +79,10 @@ def assemble_feature_matrix(db_conn) -> pd.DataFrame:
     # Join GDELT
     features = features.join(gdelt, how='left')
 
+    # Fill NaNs in GDELT columns with 0 before dropna() to prevent losing all data if GDELT is sparse
+    GDELT_COLS = ['tone_7d_avg', 'tone_30d_avg', 'event_spike_zscore', 'tone_price_divergence', 'article_count_zscore', 'tone_momentum']
+    features[GDELT_COLS] = features[GDELT_COLS].fillna(0)
+
     # 3. Fetch COT
     cot = pd.read_sql("SELECT week_date, net_long FROM cot_xauusd ORDER BY week_date", db_conn)
     cot['week_date'] = pd.to_datetime(cot['week_date'], utc=True)
@@ -110,7 +114,7 @@ def assemble_feature_matrix(db_conn) -> pd.DataFrame:
         fred_pivot['dxy_return'] = 0
 
     # Reindex FRED to hourly
-    fred_hourly = fred_pivot[['yield_spread', 'dxy_return']].reindex(features.index).ffill()
+    fred_hourly = fred_pivot[['yield_spread', 'dxy_return']].reindex(features.index, method='pad')
     features = features.join(fred_hourly, how='left')
 
     # HMM Specific features

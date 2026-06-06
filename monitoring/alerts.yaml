@@ -28,6 +28,33 @@ groups:
         annotations:
           summary: "No new signals for 8 hours"
 
+      - alert: GDELTFeatureStale
+        expr: |
+          (time() - max(gdelt_features_last_timestamp_seconds)) > 3600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GDELT features stale > 1 hour"
+
+      - alert: COTDataMissing
+        expr: |
+          (time() - max(cot_xauusd_last_week_date_seconds)) > 604800
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: "COT data older than 1 week"
+
+      - alert: GARCHVolSpike
+        expr: |
+          signals_garch_vol_forecast > 0.40
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "GARCH vol forecast > 40% (high risk)"
+
 notification_channels:
   - name: slack_alerts
     type: slack

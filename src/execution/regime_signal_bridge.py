@@ -1,11 +1,12 @@
 import numpy as np
+import pandas as pd
 
 class RegimeSignalBridge:
     REGIME_MULTIPLIERS = {
         0: 1.0,   # Trending Bull  — full signal
         1: 0.6,   # Trending Bear  — reduced
         2: 0.3,   # High-Vol Choppy — minimal
-        3: 0.8,   # Low-Vol Range  — standard
+        3: 0.8,   # Low-Vol Range  Standard
     }
 
     def translate(self,
@@ -16,13 +17,6 @@ class RegimeSignalBridge:
         """
         Returns: forecast value in range [-20, +20]
         pysystemtrade external forecast scale.
-
-        Logic:
-        1. dominant_regime = argmax(hmm_posterior)
-        2. regime_mult = REGIME_MULTIPLIERS[dominant_regime]
-        3. direction = (lstm_signal - 0.5) * 2  # -1 to +1
-        4. raw_forecast = direction * regime_mult * garch_position_size * 20
-        5. clip to [-20, +20]
         """
         dominant_regime = np.argmax(hmm_posterior)
         regime_mult = self.REGIME_MULTIPLIERS[dominant_regime]
@@ -41,23 +35,32 @@ class RegimeSignalBridge:
 def external_forecast_adapter(raw_data):
     """
     Adapter for pysystemtrade to ingest the external forecast.
-    pysystemtrade expects a function that takes raw data and returns a forecast.
+    pysystemtrade expects a function that takes raw data and returns a pd.Series.
     """
     import os
     import psycopg2
+    from datetime import datetime, timezone
 
     db_url = os.getenv('TIMESCALE_URL', 'postgresql://localhost/xauusd')
     conn = psycopg2.connect(db_url)
     cur = conn.cursor()
 
     try:
-        cur.execute("SELECT bridge_forecast FROM signals ORDER BY timestamp DESC LIMIT 1")
+        cur.execute("SELECT timestamp, bridge_forecast FROM signals ORDER BY timestamp DESC LIMIT 1")
         result = cur.fetchone()
-        forecast = result[0] if result else 0.0
+        if result:
+            ts, forecast = result
+            # Ensure ts is UTC
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        else:
+            ts = datetime.now(timezone.utc)
+            forecast = 0.0
     except Exception:
+        ts = datetime.now(timezone.utc)
         forecast = 0.0
     finally:
         cur.close()
         conn.close()
 
-    return forecast
+    return pd.Series([forecast], index=[ts])
