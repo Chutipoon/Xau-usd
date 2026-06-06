@@ -7,7 +7,6 @@ import psycopg2
 def run_hmm_predict():
     from src.models.hmm_regime import RegimeHMM
     import pandas as pd
-    import json
 
     df = pd.read_parquet("data/feature_matrix.parquet")
     # Columns for HMM: [returns, log_volume, realized_vol, yield_spread, cot_net_long, event_spike_zscore]
@@ -54,12 +53,7 @@ def run_garch_forecast(**context):
     hmm_output = context['ti'].xcom_pull(task_ids='run_hmm_predict')
     regime = hmm_output['regime']
 
-    # We need historical returns and regimes to fit/forecast
-    # For now, we fit on the fly or load if we had a persistence mechanism
-    # The RegimeGARCH in src/models/garch_vol.py seems to fit on returns and regimes
     garch = RegimeGARCH()
-    # Mocking historical regimes for simplicity as we don't have them in the matrix directly yet
-    # In a real system, we'd fetch them from the signals table or re-predict.
     returns = df['returns_1h']
     # For simplicity, we use a single regime fit for the current forecast if we don't have history
     garch.fit_all(returns, np.full(len(returns), regime))
@@ -92,8 +86,8 @@ def run_regime_bridge(**context):
 
 def store_signals(**context):
     import json
-    import pandas as pd
-    from datetime import datetime
+    import os
+    import psycopg2
 
     ti = context['ti']
     hmm_output = ti.xcom_pull(task_ids='run_hmm_predict')

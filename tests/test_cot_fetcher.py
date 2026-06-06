@@ -71,7 +71,7 @@ def test_fetch_and_store_cot_calls_db():
         mock_cursor = mock_db_conn.cursor.return_value.__enter__.return_value
 
         # Mock psycopg2.extras.execute_values
-        with patch('psycopg2.extras.execute_values') as mock_execute_values:
+        with patch('src.data.cot_fetcher.psycopg2.extras.execute_values') as mock_execute_values:
             fetch_and_store_cot(2024, 2024, mock_db_conn)
 
             assert mock_execute_values.called

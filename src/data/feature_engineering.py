@@ -84,8 +84,8 @@ def assemble_feature_matrix(db_conn) -> pd.DataFrame:
     cot['week_date'] = pd.to_datetime(cot['week_date'], utc=True)
     cot = cot.set_index('week_date')
 
-    # Reindex COT to hourly (forward fill)
-    cot_hourly = cot.reindex(features.index).ffill()
+    # Reindex COT to hourly (using method='pad' to handle alignment)
+    cot_hourly = cot.reindex(features.index, method='pad')
     features['cot_net_long'] = cot_hourly['net_long']
 
     # 4. Fetch FRED
