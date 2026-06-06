@@ -4,7 +4,7 @@ instruments:
 
 trading_rules:
   external_forecast:
-    function: sysquant.estimators.forecast_scalar.external_forecast
+    function: src.execution.regime_signal_bridge.external_forecast_adapter
     data:
       - rawdata.daily_returns_volatility
 

@@ -2,6 +2,7 @@ import pandas as pd
 from cftc_cot import cot_download_year
 import logging
 from datetime import datetime
+import psycopg2.extras
 
 logger = logging.getLogger(__name__)
 
@@ -87,28 +88,23 @@ def fetch_and_store_cot(start_year: int, end_year: int, db_conn):
         logger.error("COT data validation failed. Skipping storage.")
         return
 
-    rows_inserted = 0
-    rows_updated = 0
+    rows = [
+        (row['week_date'], row['net_long'], row['net_short'], row['noncomm_net'], row['comm_net'])
+        for _, row in df.iterrows()
+    ]
+
+    sql = """
+        INSERT INTO cot_xauusd (week_date, net_long, net_short, noncomm_net, comm_net)
+        VALUES %s
+        ON CONFLICT (week_date) DO UPDATE SET
+            net_long = EXCLUDED.net_long,
+            net_short = EXCLUDED.net_short,
+            noncomm_net = EXCLUDED.noncomm_net,
+            comm_net = EXCLUDED.comm_net
+    """
 
     with db_conn.cursor() as cur:
-        for _, row in df.iterrows():
-            cur.execute("""
-                INSERT INTO cot_xauusd (week_date, net_long, net_short, noncomm_net, comm_net)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (week_date) DO UPDATE SET
-                    net_long = EXCLUDED.net_long,
-                    net_short = EXCLUDED.net_short,
-                    noncomm_net = EXCLUDED.noncomm_net,
-                    comm_net = EXCLUDED.comm_net
-                RETURNING (xmax = 0) AS inserted;
-            """, (row['week_date'], row['net_long'], row['net_short'], row['noncomm_net'], row['comm_net']))
-
-            inserted = cur.fetchone()[0]
-            if inserted:
-                rows_inserted += 1
-            else:
-                rows_updated += 1
-
+        psycopg2.extras.execute_values(cur, sql, rows)
         db_conn.commit()
 
-    logger.info(f"COT Sync Complete: {rows_inserted} inserted, {rows_updated} updated.")
+    logger.info(f"COT Sync Complete: Processed {len(rows)} rows.")

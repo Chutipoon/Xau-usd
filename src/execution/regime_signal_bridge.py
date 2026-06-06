@@ -37,3 +37,27 @@ class RegimeSignalBridge:
         for rid, mult in self.REGIME_MULTIPLIERS.items():
             weight += hmm_posterior[rid] * mult
         return float(weight)
+
+def external_forecast_adapter(raw_data):
+    """
+    Adapter for pysystemtrade to ingest the external forecast.
+    pysystemtrade expects a function that takes raw data and returns a forecast.
+    """
+    import os
+    import psycopg2
+
+    db_url = os.getenv('TIMESCALE_URL', 'postgresql://localhost/xauusd')
+    conn = psycopg2.connect(db_url)
+    cur = conn.cursor()
+
+    try:
+        cur.execute("SELECT bridge_forecast FROM signals ORDER BY timestamp DESC LIMIT 1")
+        result = cur.fetchone()
+        forecast = result[0] if result else 0.0
+    except Exception:
+        forecast = 0.0
+    finally:
+        cur.close()
+        conn.close()
+
+    return forecast
