@@ -54,10 +54,10 @@ class TestGdeltBigQuery(unittest.TestCase):
 
         # Check rolling calculations
         # min_periods=168 for 7d_avg
-        self.assertTrue(features['tone_7d_avg'].iloc[167] is not np.nan)
+        self.assertFalse(pd.isna(features['tone_7d_avg'].iloc[167]))
         # min_periods=720 for 30d_avg and zscore
-        self.assertTrue(features['tone_30d_avg'].iloc[719] is not np.nan)
-        self.assertTrue(features['event_spike_zscore'].iloc[719] is not np.nan)
+        self.assertFalse(pd.isna(features['tone_30d_avg'].iloc[719]))
+        self.assertFalse(pd.isna(features['event_spike_zscore'].iloc[719]))
 
     @patch('src.data.gdelt_bigquery.fetch_gdelt_bigquery')
     @patch('src.data.gdelt_bigquery.psycopg2.extras.execute_values')

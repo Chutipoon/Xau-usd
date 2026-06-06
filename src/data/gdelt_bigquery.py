@@ -33,7 +33,7 @@ def fetch_gdelt_bigquery(start_date: str, end_date: str, max_gb_per_query: float
     theme_filter = "|".join(XAU_GKG_THEMES)
     keyword_regex = "|".join([fr"\b{kw.replace(' ', '[ -]')}\b" for kw in XAU_KEYWORDS])
 
-    # GKG query using Themes and DocumentIdentifier (URL)
+    # Standard SQL query for BigQuery
     # V2Tone is comma-separated, first element is Average Tone
     query = f"""
         SELECT
@@ -43,7 +43,7 @@ def fetch_gdelt_bigquery(start_date: str, end_date: str, max_gb_per_query: float
         FROM
             `gdelt-bq.gdeltv2.gkg_partitioned`
         WHERE
-            _PARTITIONTIME BETWEEN TIMESTAMP(@start_date) AND TIMESTAMP(@end_date)
+            _PARTITIONTIME BETWEEN TIMESTAMP(@start_ts, 'UTC') AND TIMESTAMP(@end_ts, 'UTC')
             AND (
                 REGEXP_CONTAINS(Themes, r'{theme_filter}')
                 OR REGEXP_CONTAINS(LOWER(DocumentIdentifier), r'{keyword_regex.lower()}')
@@ -52,9 +52,10 @@ def fetch_gdelt_bigquery(start_date: str, end_date: str, max_gb_per_query: float
         ORDER BY 1
     """
 
+    # Passing start and end timestamps as YYYY-MM-DD HH:MM:SS strings for the BETWEEN clause
     query_params = [
-        bigquery.ScalarQueryParameter("start_date", "STRING", start_date),
-        bigquery.ScalarQueryParameter("end_date", "STRING", end_date),
+        bigquery.ScalarQueryParameter("start_ts", "STRING", f"{start_date} 00:00:00"),
+        bigquery.ScalarQueryParameter("end_ts", "STRING", f"{end_date} 23:59:59"),
     ]
 
     try:
@@ -92,9 +93,13 @@ def compute_features_from_aggregated(df: pd.DataFrame, price_series: pd.Series) 
 
     df = df.set_index('ts').sort_index()
 
-    # Ensure we have all hours in the range
+    # Ensure we have all hours in the range to avoid rolling window issues
     full_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq='1h', tz='UTC')
-    df = df.reindex(full_range).fillna({'tone': 0, 'article_count': 0})
+    df = df.reindex(full_range)
+
+    # Fill article_count with 0, but ffill tone to prevent drift towards 0 in averages
+    df['article_count'] = df['article_count'].fillna(0)
+    df['tone'] = df['tone'].ffill()
 
     features = pd.DataFrame(index=df.index)
     features['article_count'] = df['article_count']
@@ -129,7 +134,7 @@ def fetch_and_store_gdelt_historical(start_date: str, end_date: str, db_conn):
         logger.error("No GDELT data fetched. Historical backfill aborted.")
         return
 
-    # Fetch Price series using column names matching schema.sql (ts, close_price)
+    # Fetch Price series using column names as per db/schema.sql (ts, close_price)
     with db_conn.cursor() as cur:
         cur.execute("SELECT ts, close_price FROM ohlcv_xauusd WHERE ts >= %s AND ts <= %s", (df_gdelt['ts'].min(), df_gdelt['ts'].max()))
         price_data = cur.fetchall()
@@ -159,7 +164,7 @@ def fetch_and_store_gdelt_historical(start_date: str, end_date: str, db_conn):
             ))
 
     if rows_to_insert:
-        # Schema includes article_count as per db/schema.sql
+        # Columns must match db/schema.sql exactly
         sql = """
             INSERT INTO gdelt_features (ts, tone_7d_avg, tone_30d_avg, event_spike_zscore, tone_price_divergence, article_count)
             VALUES %s
