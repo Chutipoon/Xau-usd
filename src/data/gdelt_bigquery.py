@@ -1,9 +1,11 @@
 import os
 import logging
 import pandas as pd
+import numpy as np
 from google.cloud import bigquery
 from google.api_core.exceptions import GoogleAPIError
 from datetime import datetime, timedelta
+import psycopg2.extras
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +27,8 @@ def fetch_gdelt_bigquery(start_date: str, end_date: str, max_gb_per_month: float
     end_fmt = end_date.replace('-', '')
 
     # Construct the query with hourly aggregation
-    # We use SOURCEURL to filter for keywords as a proxy for themes in the events table
-    theme_filters = " OR ".join([f"LOWER(SOURCEURL) LIKE '%{theme.replace(' ', '%')}%'" for theme in XAU_THEMES])
+    # Using REGEXP_CONTAINS with word boundaries for more robust matching
+    theme_regex = "|".join([fr"\b{theme.replace(' ', '[ -]')}\b" for theme in XAU_THEMES])
 
     query = f"""
         SELECT
@@ -37,7 +39,7 @@ def fetch_gdelt_bigquery(start_date: str, end_date: str, max_gb_per_month: float
             `bigquery-public-data.gdeltv2.events_*`
         WHERE
             _TABLE_SUFFIX BETWEEN '{start_fmt}' AND '{end_fmt}'
-            AND ({theme_filters})
+            AND REGEXP_CONTAINS(LOWER(SOURCEURL), r'{theme_regex.lower()}')
         GROUP BY 1
         ORDER BY 1
     """
@@ -50,8 +52,7 @@ def fetch_gdelt_bigquery(start_date: str, end_date: str, max_gb_per_month: float
 
         logger.info(f"BigQuery Dry Run: {gb_scanned:.2f} GB estimated.")
 
-        # Check against monthly quota (Note: actual tracking requires persistence,
-        # here we just check if THIS query exceeds the monthly cap or a reasonable threshold)
+        # Check against monthly quota
         if gb_scanned > max_gb_per_month:
             logger.error(f"Query exceeds monthly quota: {gb_scanned:.2f}GB > {max_gb_per_month}GB")
             return pd.DataFrame()
@@ -86,7 +87,7 @@ def compute_features_from_aggregated(df: pd.DataFrame, price_series: pd.Series) 
 
     df = df.set_index('ts').sort_index()
 
-    # Ensure we have all hours in the range to avoid rolling window issues
+    # Ensure we have all hours in the range
     full_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq='1h', tz='UTC')
     df = df.reindex(full_range).fillna({'tone': 0, 'article_count': 0})
 
@@ -94,15 +95,16 @@ def compute_features_from_aggregated(df: pd.DataFrame, price_series: pd.Series) 
     features['article_count'] = df['article_count']
 
     # 1. tone_7d_avg: rolling 7-day mean (168 hours)
-    features['tone_7d_avg'] = df['tone'].rolling(window=168, min_periods=1).mean()
+    features['tone_7d_avg'] = df['tone'].rolling(window=168, min_periods=168).mean()
 
     # 2. tone_30d_avg: rolling 30-day mean (720 hours)
-    features['tone_30d_avg'] = df['tone'].rolling(window=720, min_periods=1).mean()
+    features['tone_30d_avg'] = df['tone'].rolling(window=720, min_periods=720).mean()
 
     # 3. event_spike_zscore: (count - mean30d) / std30d
-    count_mean_30d = features['article_count'].rolling(window=720, min_periods=1).mean()
-    count_std_30d = features['article_count'].rolling(window=720, min_periods=1).std().replace(0, 1)
-    features['event_spike_zscore'] = (features['article_count'] - count_mean_30d) / count_std_30d
+    count_mean_30d = features['article_count'].rolling(window=720, min_periods=720).mean()
+    count_std_30d = features['article_count'].rolling(window=720, min_periods=720).std().replace(0, 1)
+    zscore = (features['article_count'] - count_mean_30d) / count_std_30d
+    features['event_spike_zscore'] = np.clip(zscore, -15, 15)
 
     # 4. tone_price_divergence = tone_7d_avg * (-1 * price_returns_24h)
     price_returns_24h = price_series.pct_change(24)
@@ -115,14 +117,13 @@ def fetch_and_store_gdelt_historical(start_date: str, end_date: str, db_conn):
     """
     Main entry point for historical backfill.
     """
-    # 1. Fetch from BigQuery
     df_gdelt = fetch_gdelt_bigquery(start_date, end_date)
 
     if df_gdelt.empty:
         logger.error("No GDELT data fetched. Historical backfill aborted.")
         return
 
-    # 2. Fetch Price series for divergence calculation
+    # Fetch Price series
     with db_conn.cursor() as cur:
         cur.execute("SELECT ts, close_price FROM ohlcv_xauusd WHERE ts >= %s AND ts <= %s", (df_gdelt['ts'].min(), df_gdelt['ts'].max()))
         price_data = cur.fetchall()
@@ -135,26 +136,14 @@ def fetch_and_store_gdelt_historical(start_date: str, end_date: str, db_conn):
         price_df['ts'] = pd.to_datetime(price_df['ts'], utc=True)
         price_series = price_df.set_index('ts')['close_price'].sort_index()
 
-    # 3. Compute features
     features = compute_features_from_aggregated(df_gdelt, price_series)
 
-    # 4. Store in DB
-    with db_conn.cursor() as cur:
-        rows_inserted = 0
-        for ts, row in features.iterrows():
-            if pd.isna(row['tone_7d_avg']) and pd.isna(row['tone_30d_avg']):
-                continue
-
-            cur.execute("""
-                INSERT INTO gdelt_features (ts, tone_7d_avg, tone_30d_avg, event_spike_zscore, tone_price_divergence, article_count)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (ts) DO UPDATE SET
-                    tone_7d_avg = EXCLUDED.tone_7d_avg,
-                    tone_30d_avg = EXCLUDED.tone_30d_avg,
-                    event_spike_zscore = EXCLUDED.event_spike_zscore,
-                    tone_price_divergence = EXCLUDED.tone_price_divergence,
-                    article_count = EXCLUDED.article_count
-            """, (
+    # Store in DB using batch insert
+    rows_to_insert = []
+    for ts, row in features.iterrows():
+        # Insert if any of the key features are non-NaN
+        if not (row[['tone_7d_avg', 'tone_30d_avg', 'event_spike_zscore']].isna().all()):
+            rows_to_insert.append((
                 ts,
                 row['tone_7d_avg'],
                 row['tone_30d_avg'],
@@ -162,8 +151,21 @@ def fetch_and_store_gdelt_historical(start_date: str, end_date: str, db_conn):
                 row['tone_price_divergence'],
                 int(row['article_count'])
             ))
-            rows_inserted += 1
 
-        db_conn.commit()
-
-    logger.info(f"Successfully backfilled {rows_inserted} hours of GDELT features.")
+    if rows_to_insert:
+        sql = """
+            INSERT INTO gdelt_features (ts, tone_7d_avg, tone_30d_avg, event_spike_zscore, tone_price_divergence, article_count)
+            VALUES %s
+            ON CONFLICT (ts) DO UPDATE SET
+                tone_7d_avg = EXCLUDED.tone_7d_avg,
+                tone_30d_avg = EXCLUDED.tone_30d_avg,
+                event_spike_zscore = EXCLUDED.event_spike_zscore,
+                tone_price_divergence = EXCLUDED.tone_price_divergence,
+                article_count = EXCLUDED.article_count
+        """
+        with db_conn.cursor() as cur:
+            psycopg2.extras.execute_values(cur, sql, rows_to_insert, page_size=1000)
+            db_conn.commit()
+        logger.info(f"Successfully backfilled {len(rows_to_insert)} hours of GDELT features.")
+    else:
+        logger.warning("No valid features to insert.")

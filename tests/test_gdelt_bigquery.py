@@ -15,7 +15,6 @@ class TestGdeltBigQuery(unittest.TestCase):
         # Mock dry run
         mock_dry_run_job = MagicMock()
         mock_dry_run_job.total_bytes_processed = 100 * 1024**3 # 100 GB
-        mock_instance.query.side_effect = [mock_dry_run_job, MagicMock()]
 
         # Mock actual query result
         mock_query_job = MagicMock()
@@ -51,6 +50,7 @@ class TestGdeltBigQuery(unittest.TestCase):
 
     def test_compute_features_from_aggregated(self):
         # Create dummy aggregated data
+        # Use enough data to satisfy min_periods=720
         ts = pd.date_range(start='2023-01-01', periods=1000, freq='1h', tz='UTC')
         df = pd.DataFrame({
             'ts': ts,
@@ -70,19 +70,19 @@ class TestGdeltBigQuery(unittest.TestCase):
         self.assertIn('tone_price_divergence', features.columns)
         self.assertIn('article_count', features.columns)
 
-        # Check rolling calculations (first few might be NaN or partial depending on min_periods)
-        self.assertFalse(features['tone_7d_avg'].isna().all())
-        self.assertFalse(features['event_spike_zscore'].isna().all())
+        # Check rolling calculations
+        self.assertFalse(features['tone_7d_avg'].iloc[200:].isna().all())
+        self.assertFalse(features['event_spike_zscore'].iloc[800:].isna().all())
 
     @patch('src.data.gdelt_bigquery.fetch_gdelt_bigquery')
-    @patch('psycopg2.connect')
-    def test_fetch_and_store_gdelt_historical(self, mock_connect, mock_fetch_bq):
-        # Mock BigQuery fetch
-        ts = pd.date_range(start='2023-01-01', periods=24, freq='1h', tz='UTC')
+    @patch('psycopg2.extras.execute_values')
+    def test_fetch_and_store_gdelt_historical(self, mock_execute_values, mock_fetch_bq):
+        # Mock BigQuery fetch with enough data for rolling windows
+        ts = pd.date_range(start='2023-01-01', periods=800, freq='1h', tz='UTC')
         mock_fetch_bq.return_value = pd.DataFrame({
             'ts': ts,
-            'tone': [0.1] * 24,
-            'article_count': [5] * 24
+            'tone': [0.1] * 800,
+            'article_count': [5] * 800
         })
 
         # Mock DB connection and cursor
@@ -94,8 +94,8 @@ class TestGdeltBigQuery(unittest.TestCase):
 
         fetch_and_store_gdelt_historical('2023-01-01', '2023-01-01', mock_conn)
 
-        # Verify that execute was called (for inserting features)
-        self.assertTrue(mock_cur.execute.called)
+        # Verify that execute_values was called
+        self.assertTrue(mock_execute_values.called)
         # Verify commit was called
         self.assertTrue(mock_conn.commit.called)
 
