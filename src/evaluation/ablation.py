@@ -6,7 +6,7 @@ from src.models.lstm_signal import LSTMSignalModel, LSTMTrainer
 from src.models.garch_vol import RegimeGARCH
 from src.models.hmm_regime import RegimeHMM
 
-def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray, position_sizes: np.ndarray = None) -> float:
+def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray, position_sizes: np.ndarray = None, frequency: str = 'D1') -> float:
     # simple strategy: long if prob > 0.5, else short
     direction = (predictions.flatten() > 0.5).astype(float) * 2 - 1
 
@@ -28,15 +28,17 @@ def calculate_sharpe(returns: np.ndarray, predictions: np.ndarray, position_size
     if std_ret == 0:
         return 0.0
 
-    # Annualized Sharpe (assuming hourly returns, 252 days * 24 hours)
-    return float((avg_ret / std_ret) * np.sqrt(252 * 24))
+    # Annualized Sharpe
+    ann_factor = 252 * 23 if frequency == 'H1' else 252
+    return float((avg_ret / std_ret) * np.sqrt(ann_factor))
 
 def run_ablation_study(returns: np.ndarray,
                         features_with_gdelt: np.ndarray,
                         features_without_gdelt: np.ndarray,
                         targets: np.ndarray,
                         returns_series: pd.Series,
-                        hmm_features_df: pd.DataFrame) -> Dict[str, Any]:
+                        hmm_features_df: pd.DataFrame,
+                        frequency: str = 'D1') -> Dict[str, Any]:
     """
     True Expanding-Window Walk-Forward:
     Fold 1: train 0-20%, test 20-24%
@@ -94,7 +96,7 @@ def run_ablation_study(returns: np.ndarray,
         ret_test = returns[train_end:test_end]
 
         # Position sizing via GARCH
-        garch = RegimeGARCH()
+        garch = RegimeGARCH(frequency=frequency)
         garch.fit_all(returns_series.iloc[:train_end], regimes_train)
         pos_sizes = np.array([garch.position_size(r) for r in regimes_test])
 
@@ -105,7 +107,7 @@ def run_ablation_study(returns: np.ndarray,
         trainer_with.train(X_train_with, y_train, X_val=X_test_with, y_val=y_test,
                           epochs=50, early_stopping_patience=10)
         preds_with = trainer_with.predict(X_test_with)
-        sharpe_with = calculate_sharpe(ret_test, preds_with, pos_sizes)
+        sharpe_with = calculate_sharpe(ret_test, preds_with, pos_sizes, frequency=frequency)
 
         # Train LSTM without GDELT
         model_without = LSTMSignalModel(input_size=f_wo, sequence_length=sl_wo)
@@ -114,7 +116,7 @@ def run_ablation_study(returns: np.ndarray,
         trainer_without.train(X_train_without, y_train, X_val=X_test_without, y_val=y_test,
                              epochs=50, early_stopping_patience=10)
         preds_without = trainer_without.predict(X_test_without)
-        sharpe_without = calculate_sharpe(ret_test, preds_without, pos_sizes)
+        sharpe_without = calculate_sharpe(ret_test, preds_without, pos_sizes, frequency=frequency)
 
         sharpes_with.append(sharpe_with)
         sharpes_without.append(sharpe_without)

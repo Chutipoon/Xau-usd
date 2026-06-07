@@ -8,7 +8,9 @@ class RegimeGARCH:
         self.frequency = frequency
         self.models = {}  # {regime_id: arch.arch_model fitted}
 
-    def fit_all(self, returns: pd.Series, regimes: np.ndarray):
+    def fit_all(self, returns: pd.Series, regimes: np.ndarray, frequency: str = None):
+        if frequency:
+            self.frequency = frequency
         # Fit separate GARCH(1,1) for each regime
         unique_regimes = np.unique(regimes)
         for rid in unique_regimes:

@@ -29,7 +29,8 @@ def fetch_gdelt():
     df_price['ts'] = pd.to_datetime(df_price['ts'], utc=True)
     price_series = df_price.set_index('ts')['close_price'].sort_index()
 
-    fetch_and_store_gdelt(24, price_series, conn)
+    # Fetch last 48h to allow 24h momentum calculation
+    fetch_and_store_gdelt(48, price_series, conn)
     conn.close()
 
 def check_for_friday(**context):
