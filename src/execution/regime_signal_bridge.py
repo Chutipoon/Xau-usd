@@ -36,7 +36,7 @@ def external_forecast_adapter(system, instrument_code, rule_variation_name):
     """
     Adapter for pysystemtrade to ingest the external forecast.
     pysystemtrade trading rule signature: (system, instrument_code, rule_variation_name)
-    Returns: pd.Series indexed by date.
+    Returns: pd.Series indexed by date (tz-naive).
     """
     import os
     import psycopg2
@@ -63,9 +63,8 @@ def external_forecast_adapter(system, instrument_code, rule_variation_name):
         return pd.Series(dtype=float)
 
     ts_list, forecasts = zip(*rows)
-    # Convert timestamps to UTC and remove timezone for pysystemtrade alignment if needed,
-    # but usually UTC-aware is better.
     s = pd.Series(list(forecasts), index=pd.to_datetime(list(ts_list), utc=True))
 
-    # Resample to daily and forward-fill to provide a continuous series for pysystemtrade
-    return s.resample('D').last().ffill()
+    # Resample to daily, forward-fill, and localize to None (tz-naive)
+    # to match pysystemtrade's rawdata convention.
+    return s.resample('D').last().ffill().tz_localize(None)
