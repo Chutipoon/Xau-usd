@@ -17,6 +17,7 @@ class EmergencyStopException(Exception):
 
 def emergency_stop(reason: str, db_conn, pst_system=None) -> Dict:
     """Execute emergency stop: flatten all positions, disable signals."""
+    create_emergency_stop_table(db_conn)
     start_time = time.time()
     try:
         cursor = db_conn.cursor()
@@ -149,7 +150,7 @@ class Watchdog:
         try:
             cursor.execute("""
                 SELECT COUNT(*) FROM signals
-                WHERE timestamp > NOW() - INTERVAL '1 hour'
+                WHERE timestamp > NOW() - INTERVAL '2 hours'
                 AND (hmm_posterior IS NULL OR hmm_regime IS NULL)
             """)
             return cursor.fetchone()[0] == 0
@@ -163,7 +164,7 @@ class Watchdog:
         try:
             cursor.execute("""
                 SELECT COUNT(*) FROM signals
-                WHERE timestamp > NOW() - INTERVAL '1 hour'
+                WHERE timestamp > NOW() - INTERVAL '2 hours'
                 AND (lstm_signal IS NULL OR lstm_signal < 0 OR lstm_signal > 1)
             """)
             return cursor.fetchone()[0] == 0
@@ -178,9 +179,9 @@ class Watchdog:
             cursor.execute("SELECT EXTRACT(EPOCH FROM (NOW() - MAX(ts))) FROM gdelt_features")
             result = cursor.fetchone()
             lag_sec = result[0] if result and result[0] is not None else 999999
-            return True # Non-fatal
+            return lag_sec <= 1800
         except Exception:
-            return True
+            return False
         finally:
             cursor.close()
 

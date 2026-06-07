@@ -8,7 +8,9 @@ class RegimeGARCH:
         self.frequency = frequency
         self.models = {}  # {regime_id: arch.arch_model fitted}
 
-    def fit_all(self, returns: pd.Series, regimes: np.ndarray):
+    def fit_all(self, returns: pd.Series, regimes: np.ndarray, frequency: str = None):
+        if frequency:
+            self.frequency = frequency
         # Fit separate GARCH(1,1) for each regime
         unique_regimes = np.unique(regimes)
         for rid in unique_regimes:
@@ -42,10 +44,10 @@ class RegimeGARCH:
             var_forecast = var_forecast / (res.scale ** 2)
 
         # Annualize based on data frequency
-        # H1: 252 * 24
+        # H1: 252 * 23 (XAU/USD trades 23h/day)
         # D1: 252
         if self.frequency == 'H1':
-            ann_factor = 252 * 24
+            ann_factor = 252 * 23
         else:
             ann_factor = 252
 

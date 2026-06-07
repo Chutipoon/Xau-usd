@@ -2,6 +2,9 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, List
 from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 class WalkForwardBacktester:
     def __init__(self, n_windows: int = 12, test_months: int = 1, overlap_weeks: int = 2):
@@ -64,6 +67,9 @@ class WalkForwardBacktester:
 
         if not window_results:
             return {}
+
+        if len(window_results) < self.n_windows:
+            logger.warning(f"Backtest produced only {len(window_results)} windows, but {self.n_windows} were requested. Data might be too short.")
 
         summary = {
             'sharpe_ratio': np.mean([w['sharpe_ratio'] for w in window_results]),

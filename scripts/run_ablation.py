@@ -33,6 +33,7 @@ def main():
     parser = argparse.ArgumentParser(description='Run GDELT Ablation Study')
     parser.add_argument('--data-path', type=str, required=True, help='Path to features parquet file')
     parser.add_argument('--output', type=str, default='reports/ablation_report.json', help='Path to save results')
+    parser.add_argument('--frequency', type=str, default='H1', choices=['H1', 'D1'], help='Data frequency')
 
     args = parser.parse_args()
 
@@ -97,8 +98,26 @@ def main():
     # create_sequences drops first seq_len samples
     returns_series = pd.Series(ret_seq)
 
-    print("Running ablation study (5 folds expanding walk-forward)...")
-    results = run_ablation_study(ret_seq, X_with_seq, X_without_seq, y_seq, reg_seq, returns_series)
+    print(f"Running ablation study (5 folds expanding walk-forward) with frequency={args.frequency}...")
+    # Fix: Correct order and types of arguments for run_ablation_study
+    # (returns, features_with, features_without, targets, returns_series, hmm_features_df, frequency)
+    # Based on src/evaluation/ablation.py:
+    # def run_ablation_study(returns: np.ndarray,
+    #                     features_with_gdelt: np.ndarray,
+    #                     features_without_gdelt: np.ndarray,
+    #                     targets: np.ndarray,
+    #                     returns_series: pd.Series,
+    #                     hmm_features_df: pd.DataFrame,
+    #                     frequency: str = 'H1')
+    results = run_ablation_study(
+        returns=ret_seq,
+        features_with_gdelt=X_with_seq,
+        features_without_gdelt=X_without_seq,
+        targets=y_seq,
+        returns_series=returns_series,
+        hmm_features_df=df[hmm_features], # Full features DF for HMM fitting
+        frequency=args.frequency
+    )
 
     print("\n--- Ablation Study Report ---")
     print(f"Avg Sharpe (With GDELT): {results['sharpe_with_gdelt']:.4f}")
