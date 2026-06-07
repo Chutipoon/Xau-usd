@@ -85,12 +85,15 @@ def assemble_feature_matrix(db_conn) -> pd.DataFrame:
 
     # 3. Fetch COT
     cot = pd.read_sql("SELECT week_date, net_long FROM cot_xauusd ORDER BY week_date", db_conn)
-    cot['week_date'] = pd.to_datetime(cot['week_date'], utc=True)
-    cot = cot.set_index('week_date')
-
-    # Reindex COT to hourly (using method='pad' to handle alignment)
-    cot_hourly = cot.reindex(features.index, method='pad')
-    features['cot_net_long'] = cot_hourly['net_long']
+    # COT as-of=Tuesday, published Friday 20:30 EST (≈ 20:00 GMT) — use +3d 20h to be safe
+    cot['pub_ts'] = pd.to_datetime(cot['week_date'], utc=True) + pd.Timedelta(days=3, hours=20)
+    cot = cot.set_index('pub_ts').sort_index()
+    cot_merged = pd.merge_asof(
+        pd.DataFrame(index=features.index),
+        cot[['net_long']],
+        left_index=True, right_index=True, direction='backward'
+    )
+    features['cot_net_long'] = cot_merged['net_long']
 
     # 4. Fetch FRED
     fred = pd.read_sql("SELECT obs_date, series_id, obs_value FROM macro_fred", db_conn)
@@ -114,8 +117,16 @@ def assemble_feature_matrix(db_conn) -> pd.DataFrame:
         fred_pivot['dxy_return'] = 0
 
     # Reindex FRED to hourly
-    fred_hourly = fred_pivot[['yield_spread', 'dxy_return']].reindex(features.index, method='pad')
-    features = features.join(fred_hourly, how='left')
+    fred_pivot_ts = fred_pivot[['yield_spread', 'dxy_return']].copy()
+    # FRED daily series published next business morning ~09:00 GMT
+    fred_pivot_ts.index = fred_pivot_ts.index + pd.Timedelta(days=1, hours=9)
+    fred_pivot_ts = fred_pivot_ts.sort_index()
+    fred_merged = pd.merge_asof(
+        pd.DataFrame(index=features.index),
+        fred_pivot_ts,
+        left_index=True, right_index=True, direction='backward'
+    )
+    features = features.join(fred_merged, how='left')
 
     # HMM Specific features
     features['returns'] = features['returns_1h']
