@@ -24,9 +24,12 @@ def fetch_gdelt():
     import pandas as pd
     db_url = os.getenv('TIMESCALE_URL', 'postgresql://localhost/xauusd')
     conn = psycopg2.connect(db_url)
-    # GDELT fetcher needs a price series for alignment, let's mock it or fetch latest
-    # For now, just passing dummy to satisfy signature if needed, or assume fetcher handles it
-    fetch_and_store_gdelt(24, None, conn)
+    # Need latest price for tone_price_divergence
+    df_price = pd.read_sql("SELECT ts, close_price FROM ohlcv_xauusd ORDER BY ts DESC LIMIT 1000", conn)
+    df_price['ts'] = pd.to_datetime(df_price['ts'], utc=True)
+    price_series = df_price.set_index('ts')['close_price'].sort_index()
+
+    fetch_and_store_gdelt(24, price_series, conn)
     conn.close()
 
 def check_for_friday(**context):

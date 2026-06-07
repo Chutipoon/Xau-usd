@@ -42,10 +42,10 @@ class RegimeGARCH:
             var_forecast = var_forecast / (res.scale ** 2)
 
         # Annualize based on data frequency
-        # H1: 252 * 24
+        # H1: 252 * 23 (XAU/USD trades 23h/day)
         # D1: 252
         if self.frequency == 'H1':
-            ann_factor = 252 * 24
+            ann_factor = 252 * 23
         else:
             ann_factor = 252
 

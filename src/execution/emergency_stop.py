@@ -179,9 +179,9 @@ class Watchdog:
             cursor.execute("SELECT EXTRACT(EPOCH FROM (NOW() - MAX(ts))) FROM gdelt_features")
             result = cursor.fetchone()
             lag_sec = result[0] if result and result[0] is not None else 999999
-            return True # Non-fatal
+            return lag_sec <= 1800
         except Exception:
-            return True
+            return False
         finally:
             cursor.close()
 
