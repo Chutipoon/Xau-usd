@@ -17,6 +17,7 @@ class EmergencyStopException(Exception):
 
 def emergency_stop(reason: str, db_conn, pst_system=None) -> Dict:
     """Execute emergency stop: flatten all positions, disable signals."""
+    create_emergency_stop_table(db_conn)
     start_time = time.time()
     try:
         cursor = db_conn.cursor()

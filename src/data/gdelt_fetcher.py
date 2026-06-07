@@ -16,7 +16,7 @@ def fetch_gdelt_docs(hours_back: int = 24) -> pd.DataFrame:
     Fetches news articles from GDELT Doc API for XAU/USD themes.
     """
     f = Filters(
-        keyword=XAU_THEMES,
+        keyword=" OR ".join(XAU_THEMES),
         start_date=(datetime.now() - timedelta(hours=hours_back)).strftime("%Y-%m-%d"),
         end_date=datetime.now().strftime("%Y-%m-%d")
     )

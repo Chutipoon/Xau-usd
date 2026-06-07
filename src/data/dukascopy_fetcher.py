@@ -3,7 +3,7 @@ import struct
 import requests
 import pandas as pd
 import psycopg2.extras
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import time
 import logging
 
@@ -108,7 +108,7 @@ def _parse_bi5(data: bytes, date: datetime) -> list[dict]:
     """
     struct_fmt = ">i4If"
     struct_size = struct.calcsize(struct_fmt)  # 24 bytes
-    base_ts = int(date.replace(tzinfo=None).timestamp())  # naive UTC midnight
+    base_ts = int(date.replace(tzinfo=timezone.utc).timestamp())  # naive UTC midnight
 
     records = []
     for offset in range(0, len(data) - struct_size + 1, struct_size):
