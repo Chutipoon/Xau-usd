@@ -20,14 +20,13 @@ def emergency_stop(reason: str, db_conn, pst_system=None) -> Dict:
     start_time = time.time()
     try:
         cursor = db_conn.cursor()
-        # Bug Fix #1: Zero all active signals (last 1 hour), preserving history
+        # Bug Fix #1: Zero all signals to ensure system safety
         cursor.execute("""
             UPDATE signals
             SET bridge_forecast = 0,
                 lstm_signal = NULL,
                 hmm_regime = NULL,
                 hmm_posterior = NULL
-            WHERE timestamp > NOW() - INTERVAL '1 hour'
         """)
         db_conn.commit()
 

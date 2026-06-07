@@ -69,10 +69,11 @@ def test_fetch_and_store_cot_calls_db():
     with patch('src.data.cot_fetcher.fetch_cot_gold', return_value=mock_df):
         mock_db_conn = MagicMock()
         mock_cursor = mock_db_conn.cursor.return_value.__enter__.return_value
-        mock_cursor.fetchone.return_value = [True] # inserted=True
 
-        fetch_and_store_cot(2024, 2024, mock_db_conn)
+        # Mock psycopg2.extras.execute_values
+        with patch('src.data.cot_fetcher.psycopg2.extras.execute_values') as mock_execute_values:
+            fetch_and_store_cot(2024, 2024, mock_db_conn)
 
-        assert mock_cursor.execute.called
-        assert "INSERT INTO cot_xauusd" in mock_cursor.execute.call_args[0][0]
-        assert mock_db_conn.commit.called
+            assert mock_execute_values.called
+            assert "INSERT INTO cot_xauusd" in mock_execute_values.call_args[0][1]
+            assert mock_db_conn.commit.called

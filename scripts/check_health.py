@@ -10,7 +10,7 @@ from datetime import datetime
 
 def check_lag(cursor, table, column='timestamp'):
     try:
-        cursor.execute(f"SELECT EXTRACT(EPOCH FROM (NOW() - MAX({column}))) FROM {table}")
+        cursor.execute(f"SELECT EXTRACT(EPOCH FROM (NOW() - MAX({column}::TIMESTAMPTZ))) FROM {table}")
         result = cursor.fetchone()
         return result[0] if result and result[0] is not None else None
     except Exception as e:

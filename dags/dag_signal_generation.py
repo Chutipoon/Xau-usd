@@ -3,32 +3,122 @@ from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 import os
 import psycopg2
+import json
+import pandas as pd
+import numpy as np
+
+DAG_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(DAG_DIR)
 
 def run_hmm_predict():
     from src.models.hmm_regime import RegimeHMM
-    # Load model and predict
-    print("Predicting regime posterior with HMM...")
-    return "hmm_posterior_data"
+
+    # Use absolute paths
+    matrix_path = os.path.join(PROJECT_ROOT, "data", "feature_matrix.parquet")
+    model_path = os.path.join(PROJECT_ROOT, "models", "hmm.pkl")
+
+    df = pd.read_parquet(matrix_path)
+    hmm_features = ['returns', 'log_volume', 'realized_vol', 'yield_spread', 'cot_net_long', 'event_spike_zscore']
+
+    model = RegimeHMM.load(model_path)
+    proba = model.predict_proba(df[hmm_features])
+    latest_proba = proba[-1]
+
+    return {
+        "regime": int(latest_proba.argmax()),
+        "posterior": latest_proba.tolist()
+    }
 
 def run_lstm_predict():
-    from src.models.lstm_signal import LSTMTrainer, LSTMSignalModel
-    # Load model and predict
-    print("Predicting direction signal with LSTM...")
-    return "lstm_signal_data"
+    from src.models.lstm_signal import LSTMTrainer, FEATURE_COLS
 
-def run_garch_forecast():
-    from src.models.garch_vol import RegimeGARCH
-    # Load model and forecast
-    print("Forecasting volatility with GARCH...")
-    return "garch_vol_data"
+    matrix_path = os.path.join(PROJECT_ROOT, "data", "feature_matrix.parquet")
+    model_path = os.path.join(PROJECT_ROOT, "models", "lstm.pt")
 
-def run_regime_bridge():
+    df = pd.read_parquet(matrix_path)
+    trainer = LSTMTrainer.load(model_path)
+
+    X_raw = df[FEATURE_COLS].values
+    X_scaled = trainer.scaler.transform(X_raw)
+
+    seq_len = trainer.model.sequence_length
+    if len(X_scaled) < seq_len:
+        raise ValueError(f"Not enough data for LSTM sequence (need {seq_len}, got {len(X_scaled)})")
+
+    last_seq = X_scaled[-seq_len:].reshape(1, seq_len, -1)
+    prediction = trainer.predict(last_seq)
+
+    return float(prediction[0][0])
+
+def run_garch_forecast(**context):
+    import joblib
+
+    hmm_output = context['ti'].xcom_pull(task_ids='run_hmm_predict')
+    regime = hmm_output['regime']
+
+    model_path = os.path.join(PROJECT_ROOT, "models", "garch.pkl")
+    # Load pre-trained GARCH model
+    garch = joblib.load(model_path)
+
+    # Fixed: Removed 'frequency' argument as per Issue #8 spec
+    vol_forecast = garch.forecast_vol(regime)
+    pos_size = garch.position_size(regime)
+
+    return {
+        "vol_forecast": vol_forecast,
+        "position_size": pos_size
+    }
+
+def run_regime_bridge(**context):
     from src.execution.regime_signal_bridge import RegimeSignalBridge
-    print("Translating outputs to pysystemtrade forecast...")
-    return "bridge_forecast_data"
 
-def store_signals():
-    print("Storing signals in the database...")
+    ti = context['ti']
+    hmm_output = ti.xcom_pull(task_ids='run_hmm_predict')
+    lstm_signal = ti.xcom_pull(task_ids='run_lstm_predict')
+    garch_output = ti.xcom_pull(task_ids='run_garch_forecast')
+
+    bridge = RegimeSignalBridge()
+    forecast = bridge.translate(
+        hmm_posterior=np.array(hmm_output['posterior']),
+        lstm_signal=lstm_signal,
+        garch_position_size=garch_output['position_size']
+    )
+
+    return forecast
+
+def store_signals(**context):
+    from psycopg2.extras import Json
+
+    ti = context['ti']
+    hmm_output = ti.xcom_pull(task_ids='run_hmm_predict')
+    lstm_signal = ti.xcom_pull(task_ids='run_lstm_predict')
+    garch_output = ti.xcom_pull(task_ids='run_garch_forecast')
+    bridge_forecast = ti.xcom_pull(task_ids='run_regime_bridge')
+
+    db_url = os.getenv('TIMESCALE_URL', 'postgresql://localhost/xauusd')
+    conn = psycopg2.connect(db_url)
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO signals (timestamp, hmm_regime, hmm_posterior, lstm_signal, garch_vol, bridge_forecast)
+        VALUES (NOW(), %s, %s, %s, %s, %s)
+        ON CONFLICT (timestamp) DO UPDATE SET
+            hmm_regime = EXCLUDED.hmm_regime,
+            hmm_posterior = EXCLUDED.hmm_posterior,
+            lstm_signal = EXCLUDED.lstm_signal,
+            garch_vol = EXCLUDED.garch_vol,
+            bridge_forecast = EXCLUDED.bridge_forecast
+    """, (
+        hmm_output['regime'],
+        Json(hmm_output['posterior']),
+        lstm_signal,
+        garch_output['vol_forecast'],
+        bridge_forecast
+    ))
+
+    conn.commit()
+    cur.close()
+    conn.close()
     return True
 
 default_args = {
@@ -55,4 +145,5 @@ with DAG(
     t4 = PythonOperator(task_id='run_regime_bridge', python_callable=run_regime_bridge)
     t5 = PythonOperator(task_id='store_signals', python_callable=store_signals)
 
+    t1 >> t3
     [t1, t2, t3] >> t4 >> t5

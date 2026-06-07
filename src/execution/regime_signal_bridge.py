@@ -1,11 +1,12 @@
 import numpy as np
+import pandas as pd
 
 class RegimeSignalBridge:
     REGIME_MULTIPLIERS = {
         0: 1.0,   # Trending Bull  — full signal
         1: 0.6,   # Trending Bear  — reduced
         2: 0.3,   # High-Vol Choppy — minimal
-        3: 0.8,   # Low-Vol Range  — standard
+        3: 0.8,   # Low-Vol Range  Standard
     }
 
     def translate(self,
@@ -16,13 +17,6 @@ class RegimeSignalBridge:
         """
         Returns: forecast value in range [-20, +20]
         pysystemtrade external forecast scale.
-
-        Logic:
-        1. dominant_regime = argmax(hmm_posterior)
-        2. regime_mult = REGIME_MULTIPLIERS[dominant_regime]
-        3. direction = (lstm_signal - 0.5) * 2  # -1 to +1
-        4. raw_forecast = direction * regime_mult * garch_position_size * 20
-        5. clip to [-20, +20]
         """
         dominant_regime = np.argmax(hmm_posterior)
         regime_mult = self.REGIME_MULTIPLIERS[dominant_regime]
@@ -37,3 +31,40 @@ class RegimeSignalBridge:
         for rid, mult in self.REGIME_MULTIPLIERS.items():
             weight += hmm_posterior[rid] * mult
         return float(weight)
+
+def external_forecast_adapter(system, instrument_code, rule_variation_name):
+    """
+    Adapter for pysystemtrade to ingest the external forecast.
+    pysystemtrade trading rule signature: (system, instrument_code, rule_variation_name)
+    Returns: pd.Series indexed by date (tz-naive).
+    """
+    import os
+    import psycopg2
+    from datetime import timezone
+
+    db_url = os.getenv('TIMESCALE_URL', 'postgresql://localhost/xauusd')
+    conn = psycopg2.connect(db_url)
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT timestamp, bridge_forecast
+            FROM signals
+            ORDER BY timestamp
+        """)
+        rows = cur.fetchall()
+    except Exception:
+        rows = []
+    finally:
+        cur.close()
+        conn.close()
+
+    if not rows:
+        return pd.Series(dtype=float)
+
+    ts_list, forecasts = zip(*rows)
+    s = pd.Series(list(forecasts), index=pd.to_datetime(list(ts_list), utc=True))
+
+    # Resample to daily, forward-fill, and localize to None (tz-naive)
+    # to match pysystemtrade's rawdata convention.
+    return s.resample('D').last().ffill().tz_localize(None)
