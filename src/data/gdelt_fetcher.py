@@ -87,8 +87,8 @@ def compute_gdelt_features(df: pd.DataFrame, price_series: pd.Series) -> pd.Data
     aligned_returns = price_returns_24h.reindex(features.index).ffill()
     features['tone_price_divergence'] = features['tone_7d_avg'] * (-1 * aligned_returns)
 
-    # 5. article_count_zscore: redundant but required by model (same as event_spike_zscore in current impl)
-    features['article_count_zscore'] = features['event_spike_zscore']
+    # 5. article_count_zscore: (count - mean30d) / std30d (redundant but required by model)
+    features['article_count_zscore'] = (features['article_count'] - count_mean_30d) / count_std_30d
 
     # 6. tone_momentum: 24h change in tone_7d_avg
     features['tone_momentum'] = features['tone_7d_avg'].diff(24)

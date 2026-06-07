@@ -2,6 +2,9 @@ import numpy as np
 import pandas as pd
 from typing import Dict, Any, List
 from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 class WalkForwardBacktester:
     def __init__(self, n_windows: int = 12, test_months: int = 1, overlap_weeks: int = 2):
