@@ -65,6 +65,9 @@ class WalkForwardBacktester:
         if not window_results:
             return {}
 
+        if len(window_results) < self.n_windows:
+            logger.warning(f"Backtest produced only {len(window_results)} windows, but {self.n_windows} were requested. Data might be too short.")
+
         summary = {
             'sharpe_ratio': np.mean([w['sharpe_ratio'] for w in window_results]),
             'max_drawdown': np.mean([w['max_drawdown'] for w in window_results]),

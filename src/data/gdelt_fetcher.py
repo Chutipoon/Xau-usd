@@ -87,7 +87,13 @@ def compute_gdelt_features(df: pd.DataFrame, price_series: pd.Series) -> pd.Data
     aligned_returns = price_returns_24h.reindex(features.index).ffill()
     features['tone_price_divergence'] = features['tone_7d_avg'] * (-1 * aligned_returns)
 
-    return features[['tone_7d_avg', 'tone_30d_avg', 'event_spike_zscore', 'tone_price_divergence', 'article_count']]
+    # 5. article_count_zscore: redundant but required by model (same as event_spike_zscore in current impl)
+    features['article_count_zscore'] = features['event_spike_zscore']
+
+    # 6. tone_momentum: 24h change in tone_7d_avg
+    features['tone_momentum'] = features['tone_7d_avg'].diff(24)
+
+    return features[['tone_7d_avg', 'tone_30d_avg', 'event_spike_zscore', 'tone_price_divergence', 'article_count_zscore', 'tone_momentum', 'article_count']]
 
 def fetch_and_store_gdelt(hours_back: int, price_series: pd.Series, db_conn):
     """
@@ -113,13 +119,15 @@ def fetch_and_store_gdelt(hours_back: int, price_series: pd.Series, db_conn):
                 continue
 
             cur.execute("""
-                INSERT INTO gdelt_features (ts, tone_7d_avg, tone_30d_avg, event_spike_zscore, tone_price_divergence, article_count)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO gdelt_features (ts, tone_7d_avg, tone_30d_avg, event_spike_zscore, tone_price_divergence, article_count_zscore, tone_momentum, article_count)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (ts) DO UPDATE SET
                     tone_7d_avg = EXCLUDED.tone_7d_avg,
                     tone_30d_avg = EXCLUDED.tone_30d_avg,
                     event_spike_zscore = EXCLUDED.event_spike_zscore,
                     tone_price_divergence = EXCLUDED.tone_price_divergence,
+                    article_count_zscore = EXCLUDED.article_count_zscore,
+                    tone_momentum = EXCLUDED.tone_momentum,
                     article_count = EXCLUDED.article_count
             """, (
                 ts,
@@ -127,6 +135,8 @@ def fetch_and_store_gdelt(hours_back: int, price_series: pd.Series, db_conn):
                 row['tone_30d_avg'],
                 row['event_spike_zscore'],
                 row['tone_price_divergence'],
+                row['article_count_zscore'],
+                row['tone_momentum'],
                 int(row['article_count'])
             ))
 

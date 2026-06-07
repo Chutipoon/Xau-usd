@@ -60,3 +60,10 @@ def test_clipping_logic():
     # Size 10.0 is unrealistic but tests clipping
     res = bridge.translate(post, 1.0, 10.0) # 1.0 * 1.0 * 10.0 * 20 = 200 -> clip 20
     assert res == 20.0
+
+def test_zero_mult_edge_case():
+    bridge = RegimeSignalBridge()
+    post = np.array([1.0, 0, 0, 0])
+    # Size 0 or mult 0
+    res = bridge.translate(post, 1.0, 0.0)
+    assert res == 0.0

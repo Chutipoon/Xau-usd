@@ -8,8 +8,8 @@ def fetch_dukascopy():
     from src.data.dukascopy_fetcher import fetch_and_store
     db_url = os.getenv('TIMESCALE_URL', 'postgresql://localhost/xauusd')
     conn = psycopg2.connect(db_url)
-    # Fetch last 24h
-    fetch_and_store('XAUUSD', datetime.now() - timedelta(hours=24), datetime.now(), '1h', conn)
+    # Fetch last 7 days to ensure no gaps
+    fetch_and_store('XAUUSD', datetime.now() - timedelta(days=7), datetime.now(), '1h', conn)
     conn.close()
 
 def fetch_fred():
