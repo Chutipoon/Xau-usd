@@ -146,4 +146,5 @@ with DAG(
     t5 = PythonOperator(task_id='store_signals', python_callable=store_signals)
 
     t1 >> t3
+    t2 >> t4
     [t1, t2, t3] >> t4 >> t5

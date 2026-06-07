@@ -150,7 +150,7 @@ class Watchdog:
         try:
             cursor.execute("""
                 SELECT COUNT(*) FROM signals
-                WHERE timestamp > NOW() - INTERVAL '1 hour'
+                WHERE timestamp > NOW() - INTERVAL '2 hours'
                 AND (hmm_posterior IS NULL OR hmm_regime IS NULL)
             """)
             return cursor.fetchone()[0] == 0
@@ -164,7 +164,7 @@ class Watchdog:
         try:
             cursor.execute("""
                 SELECT COUNT(*) FROM signals
-                WHERE timestamp > NOW() - INTERVAL '1 hour'
+                WHERE timestamp > NOW() - INTERVAL '2 hours'
                 AND (lstm_signal IS NULL OR lstm_signal < 0 OR lstm_signal > 1)
             """)
             return cursor.fetchone()[0] == 0
