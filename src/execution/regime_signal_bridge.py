@@ -40,27 +40,32 @@ def external_forecast_adapter(system, instrument_code, rule_variation_name):
     """
     import os
     import psycopg2
-    from datetime import datetime, timezone
+    from datetime import timezone
 
     db_url = os.getenv('TIMESCALE_URL', 'postgresql://localhost/xauusd')
     conn = psycopg2.connect(db_url)
     cur = conn.cursor()
 
     try:
-        cur.execute("SELECT timestamp, bridge_forecast FROM signals ORDER BY timestamp DESC LIMIT 1")
-        result = cur.fetchone()
-        if result:
-            ts, forecast = result
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
-        else:
-            ts = datetime.now(timezone.utc)
-            forecast = 0.0
+        cur.execute("""
+            SELECT timestamp, bridge_forecast
+            FROM signals
+            ORDER BY timestamp
+        """)
+        rows = cur.fetchall()
     except Exception:
-        ts = datetime.now(timezone.utc)
-        forecast = 0.0
+        rows = []
     finally:
         cur.close()
         conn.close()
 
-    return pd.Series([forecast], index=[ts])
+    if not rows:
+        return pd.Series(dtype=float)
+
+    ts_list, forecasts = zip(*rows)
+    # Convert timestamps to UTC and remove timezone for pysystemtrade alignment if needed,
+    # but usually UTC-aware is better.
+    s = pd.Series(list(forecasts), index=pd.to_datetime(list(ts_list), utc=True))
+
+    # Resample to daily and forward-fill to provide a continuous series for pysystemtrade
+    return s.resample('D').last().ffill()

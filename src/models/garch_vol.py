@@ -4,7 +4,8 @@ from arch import arch_model
 from typing import Dict, Any
 
 class RegimeGARCH:
-    def __init__(self):
+    def __init__(self, frequency: str = 'H1'):
+        self.frequency = frequency
         self.models = {}  # {regime_id: arch.arch_model fitted}
 
     def fit_all(self, returns: pd.Series, regimes: np.ndarray):
@@ -25,7 +26,7 @@ class RegimeGARCH:
             except Exception as e:
                 print(f"Error fitting GARCH for regime {rid}: {e}")
 
-    def forecast_vol(self, regime_id: int, horizon: int = 1, frequency: str = 'H1') -> float:
+    def forecast_vol(self, regime_id: int, horizon: int = 1) -> float:
         # Returns annualized vol forecast for given regime
         if regime_id not in self.models:
             # Fallback if no model for regime (e.g. mean vol of other regimes or global)
@@ -43,7 +44,7 @@ class RegimeGARCH:
         # Annualize based on data frequency
         # H1: 252 * 24
         # D1: 252
-        if frequency == 'H1':
+        if self.frequency == 'H1':
             ann_factor = 252 * 24
         else:
             ann_factor = 252
@@ -51,10 +52,10 @@ class RegimeGARCH:
         ann_vol = np.sqrt(var_forecast * ann_factor)
         return float(ann_vol)
 
-    def position_size(self, regime_id: int, target_vol: float = 0.10, frequency: str = 'H1') -> float:
+    def position_size(self, regime_id: int, target_vol: float = 0.10) -> float:
         # Returns position multiplier: target_vol / forecast_vol
         # Capped at 2.0, minimum 0.1
-        forecast = self.forecast_vol(regime_id, frequency=frequency)
+        forecast = self.forecast_vol(regime_id)
         if forecast <= 0:
             return 0.1
 
